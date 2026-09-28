@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tbs"
+version = "0.0.1"
+description = "Traffic Behavior Suite — trajectories, cross-point Re-ID and simulation parameters from traffic video"
+requires-python = ">=3.10"
+license = {text = "AGPL-3.0-only"}
+dependencies = [
+  "numpy>=1.24",
+  "scipy>=1.10",
+  "opencv-python>=4.8",
+  "pyarrow>=14",
+  "pyyaml>=6",
+  "jsonschema>=4",
+]
+
+[project.optional-dependencies]
+train = ["torch>=2.2", "torchvision>=0.17", "ultralytics>=8.3", "onnx>=1.15"]
+reid  = ["faiss-cpu>=1.7"]
+gui   = ["PySide6>=6.6"]
+ocr   = ["easyocr>=1.7"]
+dev   = ["pytest>=7.4"]
+
+[tool.setuptools.packages.find]
+where = ["python"]
