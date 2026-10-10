@@ -1,0 +1,23 @@
+name: Windows portable test
+on:
+  push:
+    branches: ['codex/foundation-single-site-pipeline']
+    paths: ['python/**', 'tools/windows/**', 'pyproject.toml', '.github/workflows/windows-build.yml', 'docs/WINDOWS_TEST.md']
+  workflow_dispatch:
+jobs:
+  portable:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -e ".[gui]" pyinstaller -c tools/windows/constraints.txt
+      - run: python tools/windows/build.py
+      - uses: actions/upload-artifact@v4
+        continue-on-error: true
+        with:
+          name: TBS-Windows-Test
+          path: dist/TBS-Windows-Test.zip
+          retention-days: 3

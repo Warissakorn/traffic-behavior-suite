@@ -18,6 +18,16 @@ def timestamp(value):
 def load_site(path):
     path = Path(path).resolve()
     config = yaml.safe_load(path.read_text(encoding="utf-8"))
+    def finite(value):
+        if isinstance(value, float) and not np.isfinite(value):
+            raise ValueError("Config contains NaN/infinity")
+        if isinstance(value, dict):
+            for item in value.values():
+                finite(item)
+        elif isinstance(value,list):
+            for item in value:
+                finite(item)
+    finite(config)
     schema = json.loads(files("tbs").joinpath("schemas/site.json").read_text())
     errors = sorted(Draft202012Validator(schema, format_checker=FormatChecker()).iter_errors(config), key=lambda e: str(e.path))
     if errors:

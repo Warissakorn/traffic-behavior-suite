@@ -39,6 +39,13 @@ def benchmark(output):
     root = Path(output).resolve()
     path = fixture(root/"fixture")
     out, report = run(path, root/"runs")
+    result = evaluate(out, report)
+    (root/"benchmark.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
+    return result
+
+
+def evaluate(out, report):
+    out = Path(out)
     traj = pq.read_table(out/"trajectories.parquet").to_pydict()
     events = pq.read_table(out/"line_crossings.parquet").to_pylist()
     speed = np.asarray(traj["v"])
@@ -51,7 +58,6 @@ def benchmark(output):
               and metrics["position_rmse_m"] < 0.01 and metrics["speed_rmse_m_s"] < 0.01
               and metrics["crossing_time_error_s"] < 0.01)
     result = {"fixture": "synthetic rectangles, not real traffic accuracy", "passed": passed, "metrics": metrics, "output": str(out)}
-    (root/"benchmark.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
     if not passed:
         raise ValueError(f"Synthetic benchmark failed: {metrics}")
     return result

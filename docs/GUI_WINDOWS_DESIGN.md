@@ -1,9 +1,14 @@
 # แบบ GUI และตัวเปิดทดสอบบน Windows
 
-สถานะ: **ร่างออกแบบเพื่อทบทวนก่อนลงมือเขียน GUI/launcher**  
+สถานะ: **แบบอ้างอิงสำหรับ implementation GUI Test 0.1**  
 วันที่: 10 ตุลาคม 2026  
 ฐานโค้ด: PR #1, commit `984c773f86fb646db170b47841afe54acc8b5ce9`  
 เทคโนโลยีที่เสนอ: Python + PySide6 Widgets; pipeline ทำงานใน process แยก
+
+Implementation รอบแรกอยู่ใน `python/tbs/gui`, worker และ Windows launchers;
+ดู [คู่มือทดสอบ](WINDOWS_TEST.md). Portable build เป็น demo-only;
+งานโมเดลจริงใช้ source + detection dependencies. Undo line edits, full i18n,
+trajectory plotting/selection และ GPU profile เป็นงานต่อยอด; ตาราง trajectory และ PTS overlay ใช้งานได้ในรอบแรก
 
 ## 1. ผลลัพธ์ที่ต้องการ
 

@@ -61,7 +61,8 @@ samples spool to SQLite, then reconstruction loads one vehicle at a time (limit
 splitting gaps above `max_interpolation_gap_s`; it is **not an RTS smoother**.
 Short tracks may have no reconstructed rows. No 24-hour bounded-memory guarantee
 or resume capability is claimed. Successful runs remove the temporary SQLite file.
-Failures retain diagnostics and mark partial results as failed.
+Failures retain diagnostics and mark partial results as failed. GUI jobs add progress,
+cooperative cancellation (`cancelled`) and interrupted-worker reconciliation.
 
 The older `configs/site.example.yaml` describes the future full SPEC and is not
 accepted by this narrower runtime. The installed validation schema is bundled at
@@ -72,8 +73,8 @@ accepted by this narrower runtime. The installed validation schema is bundled at
 1. Obtain approved labelled footage from ≥2 sites and field control points/probe GPS.
 2. Import CVAT annotations and record predecessor-app count/tracking baselines.
 3. Add real-video detection/tracking/position/speed metrics and hold-out site splits.
-4. Add full camera calibration, RTS smoothing, lane/Frenet and overlay review.
-5. Add project config and cross-site identity/time contracts before Re-ID.
+4. Add full camera calibration, RTS smoothing and lane/Frenet; initial overlay review is available in the GUI.
+5. Add project execution and cross-site identity/time contracts before Re-ID.
 
 CI exercises the synthetic regression on Windows/Linux and Python 3.10/3.12.
 The YOLO adapter still requires a smoke test with the team's actual local weights.

@@ -27,6 +27,21 @@ tbs run demo-output/fixture/site.yaml --output output
 
 ดูขอบเขตที่รองรับและข้อจำกัดใน [`docs/FOUNDATION.md`](docs/FOUNDATION.md)
 
+## GUI และ Windows Test
+
+บน Windows: ติดตั้ง Python 3.12 x64 → `Setup-Windows.cmd` → `Launch-TBS.cmd`
+แล้วกด **ทดสอบตัวอย่าง**; `Test-Windows.cmd` ตรวจ benchmark และ GUI/worker
+โมเดลจริงเพิ่ม dependencies ด้วย `Setup-Detection-Windows.cmd` และเลือก local weights
+
+```bash
+python -m pip install -e ".[gui]"
+tbs gui
+```
+
+GUI มีหน้าตั้งค่า site/วิดีโอ/เส้นนับ, progress และ cancel ผ่าน worker,
+ตาราง Parquet แบบแบ่งหน้า, PTS video overlay และ CSV
+ดู [`docs/WINDOWS_TEST.md`](docs/WINDOWS_TEST.md) สำหรับ source launchers และ portable demo build
+
 ## เอกสาร
 - [`docs/SPEC.md`](docs/SPEC.md) — รายละเอียดโปรแกรม: ความต้องการ, สถาปัตยกรรม, pipeline, API
 - [`docs/DATA_SCHEMA.md`](docs/DATA_SCHEMA.md) — รูปแบบข้อมูล Parquet

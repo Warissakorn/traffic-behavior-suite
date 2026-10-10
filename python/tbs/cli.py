@@ -15,6 +15,9 @@ def main(argv=None):
     execute.add_argument("--output", required=True)
     demo = sub.add_parser("demo", help="Generate a synthetic fixture and run its benchmark")
     demo.add_argument("--output", required=True)
+    gui = sub.add_parser("gui", help="Open the desktop test application")
+    gui.add_argument("--smoke", action="store_true", help="Run an offscreen GUI + worker smoke test")
+    sub.add_parser("diagnostics", help="Report installed runtime modules")
     args = parser.parse_args(argv)
     try:
         if args.command == "validate":
@@ -24,9 +27,15 @@ def main(argv=None):
             from .pipeline import run
             out, report = run(args.config, args.output)
             print(json.dumps({"output": str(out), **report}, ensure_ascii=False))
-        else:
+        elif args.command == "demo":
             from .demo import benchmark
             print(json.dumps(benchmark(args.output), indent=2))
+        elif args.command == "gui":
+            from .gui.app import main as gui_main
+            return gui_main(smoke=args.smoke)
+        else:
+            from .diagnostics import report
+            print(json.dumps(report(), indent=2, ensure_ascii=False))
         return 0
     except (ValueError, OSError, ImportError, RuntimeError) as exc:
         print(f"tbs: {exc}", file=sys.stderr)
