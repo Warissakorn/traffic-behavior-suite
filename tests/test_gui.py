@@ -62,7 +62,7 @@ def test_gui_demo_and_result_loading(app,tmp_path):
     w.job.finished.connect(lambda status,message: events.append(status))
     w.start_demo()
     pump(app,lambda: bool(events))
-    assert events==["completed"]
+    assert events==["completed"],w.log.toPlainText()
     pump(app,lambda: w.store is not None and w.counts_table.rowCount()==1)
     assert "50 frames" in w.summary.text()
     assert w.progress.value()==100

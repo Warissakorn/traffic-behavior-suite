@@ -48,12 +48,15 @@ def test_pipeline_cancellation_closes_files(tmp_path):
 
 
 def invoke_worker(tmp_path,extra,session="test"):
+    environment=dict(os.environ,PYTHONIOENCODING="cp1252")
     return subprocess.run([sys.executable,"-m","tbs.worker","--session",session,
         "--control",str(tmp_path/"control.json"),"--output",str(tmp_path/"output"),*extra],
-        capture_output=True,text=True,encoding="utf-8",timeout=30)
+        capture_output=True,text=True,encoding="utf-8",timeout=30,env=environment)
 
 
 def test_worker_demo_protocol_and_results(tmp_path):
+    tmp_path=tmp_path/"ข้อมูล ทดสอบ"
+    tmp_path.mkdir()
     result=invoke_worker(tmp_path,["--demo"])
     assert result.returncode==0,result.stderr
     events=EventParser().feed(result.stdout.encode())

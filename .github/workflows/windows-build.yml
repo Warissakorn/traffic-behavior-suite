@@ -6,6 +6,8 @@ on:
   workflow_dispatch:
 jobs:
   portable:
+    permissions:
+      contents: write
     runs-on: windows-latest
     timeout-minutes: 30
     steps:
@@ -14,10 +16,32 @@ jobs:
         with:
           python-version: '3.12'
       - run: python -m pip install -e ".[gui]" pyinstaller -c tools/windows/constraints.txt
+      - name: Test Windows source launchers
+        shell: cmd
+        run: |
+          call Setup-Windows.cmd < NUL
+          if errorlevel 1 exit /b 1
+          call Test-Windows.cmd < NUL
+          if errorlevel 1 exit /b 1
       - run: python tools/windows/build.py
       - uses: actions/upload-artifact@v4
+        id: portable_upload
         continue-on-error: true
         with:
           name: TBS-Windows-Test
           path: dist/TBS-Windows-Test.zip
           retention-days: 3
+      - name: Preserve test ZIP in a draft release if artifact storage is unavailable
+        if: steps.portable_upload.outcome == 'failure'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "tbs-windows-test-$($env:GITHUB_SHA.Substring(0,12))"
+          gh release view $tag --repo $env:GITHUB_REPOSITORY 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag dist/TBS-Windows-Test.zip --clobber --repo $env:GITHUB_REPOSITORY
+          } else {
+            gh release create $tag dist/TBS-Windows-Test.zip --draft --target $env:GITHUB_SHA --title "Windows GUI Test $($env:GITHUB_SHA.Substring(0,7))" --notes-file docs/WINDOWS_TEST.md --repo $env:GITHUB_REPOSITORY
+          }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

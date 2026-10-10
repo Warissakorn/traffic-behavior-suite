@@ -50,7 +50,8 @@ py -3.12 -m venv .venv-build
 * log งานอยู่ใน `sessions/<session>.log`; launcher log อยู่ใน `logs/startup.log`
 * ยกเลิกปกติรอเฟรม/stage ปัจจุบันคืน control; หลัง 5 วินาทีเลือก force-stop ได้
 * failed/cancelled/interrupted run เป็นผลบางส่วน ไม่เปิดเป็นผลวิเคราะห์สำเร็จ
-* artifact quota เต็มไม่ทำให้ tests/build ล้ม แต่ ZIP อาจดาวน์โหลดไม่ได้จนพื้นที่พร้อม
+* artifact quota เต็มไม่ทำให้ tests/build ล้ม; workflow เก็บ ZIP ใน draft release เป็นทางสำรอง
+  ภายใต้ tag `tbs-windows-test-<commit>` ใน repository เดิม (ยังไม่ publish release)
 * setup ถูกขัดจังหวะ: รัน Setup ใหม่; ย้ายโฟลเดอร์ซอร์สให้ setup environment สำหรับ path ใหม่
 
 CI ตรวจ Python tests บน Windows/Linux, GUI offscreen และ Windows frozen build;

@@ -10,6 +10,11 @@ from .events import CancelledError
 
 
 def main(argv=None):
+    # Windows pipes otherwise inherit an ANSI code page, which cannot represent
+    # Thai file paths in JSONL events. The protocol is always UTF-8.
+    for stream in (sys.stdout,sys.stderr):
+        if hasattr(stream,"reconfigure"):
+            stream.reconfigure(encoding="utf-8",errors="replace",line_buffering=True)
     parser = argparse.ArgumentParser()
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--config")
