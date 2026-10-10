@@ -1,0 +1,7 @@
+schema_version: 1
+project_id: survey
+epoch: "2026-09-01T07:00:00+07:00"
+sites:
+  - id: A
+    config: foundation.site.example.yaml
+links: []

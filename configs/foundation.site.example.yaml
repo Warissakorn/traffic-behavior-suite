@@ -1,0 +1,22 @@
+schema_version: 1
+site_id: A
+epoch: "2026-09-01T07:00:00+07:00"
+videos:
+  - path: ../data/A.mp4
+    start_time: "2026-09-01T07:00:00+07:00"
+camera:
+  model_file: foundation.camera.example.yaml
+road:
+  count_lines:
+    - id: reference
+      p1: [13.0, 0.0]
+      p2: [13.0, 12.0]
+models:
+  detector: ../models/traffic.pt
+options:
+  confidence: 0.25
+  device: cpu
+  track_max_distance_m: 3.0
+  track_max_gap_s: 0.5
+  resample_dt: 0.1
+  max_interpolation_gap_s: 0.5

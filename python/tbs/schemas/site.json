@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["schema_version", "site_id", "videos", "camera", "road", "models"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"const": 1},
+    "site_id": {"type": "string", "pattern": "^[A-Za-z0-9_-]+$"},
+    "description": {"type": "string"},
+    "epoch": {"type": "string", "format": "date-time"},
+    "videos": {"type": "array", "minItems": 1, "items": {
+      "type": "object", "required": ["path", "start_time"], "additionalProperties": false,
+      "properties": {"path": {"type": "string", "minLength": 1}, "start_time": {"type": "string", "format": "date-time"}}
+    }},
+    "camera": {"type": "object", "required": ["model_file"], "additionalProperties": false,
+      "properties": {"model_file": {"type": "string", "minLength": 1}}},
+    "road": {"type": "object", "required": ["count_lines"], "additionalProperties": false,
+      "properties": {
+        "lanes": {"type": "array", "items": {"type": "object", "required": ["id", "centerline", "width", "direction"], "additionalProperties": false,
+          "properties": {"id": {"type": "integer", "minimum": 0, "maximum": 32767}, "centerline": {"type": "array", "minItems": 2, "items": {"$ref": "#/$defs/point"}}, "width": {"type": "number", "exclusiveMinimum": 0}, "direction": {"enum": [-1, 1]}}}},
+        "zones": {"type": "array"},
+        "count_lines": {"type": "array", "items": {"type": "object", "required": ["id", "p1", "p2"], "additionalProperties": false,
+          "properties": {"id": {"type": "string", "minLength": 1}, "p1": {"$ref": "#/$defs/point"}, "p2": {"$ref": "#/$defs/point"}, "reid_reference": {"type": "boolean"}}}}
+      }},
+    "models": {"type": "object", "required": ["detector"], "additionalProperties": false,
+      "properties": {"detector": {"type": "string", "minLength": 1}, "reid": {"type": "string"}}},
+    "options": {"type": "object", "additionalProperties": false,
+      "properties": {
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "class_ids": {"type": "array", "items": {"type": "integer", "minimum": 0, "maximum": 32767}, "uniqueItems": true},
+        "device": {"type": "string"},
+        "track_max_distance_m": {"type": "number", "exclusiveMinimum": 0},
+        "track_max_gap_s": {"type": "number", "exclusiveMinimum": 0},
+        "resample_dt": {"type": "number", "exclusiveMinimum": 0},
+        "max_interpolation_gap_s": {"type": "number", "exclusiveMinimum": 0}
+      }}
+  },
+  "$defs": {"point": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": "number"}}}
+}

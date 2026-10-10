@@ -1,0 +1,9 @@
+# Windows test environment. Update only with source/frozen smoke validation.
+PySide6==6.12.0
+av==19.0.1
+pyarrow==26.0.0
+numpy==2.5.3
+scipy==1.18.1
+opencv-python==5.0.0.93
+pyyaml==6.0.3
+jsonschema==4.26.0

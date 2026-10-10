@@ -13,7 +13,34 @@ calibrated parameters for micro- and macro-scale traffic simulation.*
 ต่อยอดจาก [traffic-vehicle-counter](https://github.com/Warissakorn/traffic-vehicle-counter)
 และ [Match-Vehicle-AI](https://github.com/Warissakorn/Match-Vehicle-AI)
 
-> สถานะ: **ออกแบบ (Phase 0)** — ยังไม่มีโค้ดใช้งานได้
+> สถานะ: **Foundation (Phase 0)** — มี Python reference pipeline และ synthetic benchmark;
+> ยังต้องตรวจความแม่นยำกับข้อมูลจราจรจริงและพัฒนา calibration/tracking ตาม SPEC
+
+## เริ่มใช้งาน Python reference
+
+```bash
+python -m pip install -e ".[dev]"
+tbs demo --output demo-output
+tbs validate demo-output/fixture/site.yaml
+tbs run demo-output/fixture/site.yaml --output output
+```
+
+ดูขอบเขตที่รองรับและข้อจำกัดใน [`docs/FOUNDATION.md`](docs/FOUNDATION.md)
+
+## GUI และ Windows Test
+
+บน Windows: ติดตั้ง Python 3.12 x64 → `Setup-Windows.cmd` → `Launch-TBS.cmd`
+แล้วกด **ทดสอบตัวอย่าง**; `Test-Windows.cmd` ตรวจ benchmark และ GUI/worker
+โมเดลจริงเพิ่ม dependencies ด้วย `Setup-Detection-Windows.cmd` และเลือก local weights
+
+```bash
+python -m pip install -e ".[gui]"
+tbs gui
+```
+
+GUI มีหน้าตั้งค่า site/วิดีโอ/เส้นนับ, progress และ cancel ผ่าน worker,
+ตาราง Parquet แบบแบ่งหน้า, PTS video overlay และ CSV
+ดู [`docs/WINDOWS_TEST.md`](docs/WINDOWS_TEST.md) สำหรับ source launchers และ portable demo build
 
 ## เอกสาร
 - [`docs/SPEC.md`](docs/SPEC.md) — รายละเอียดโปรแกรม: ความต้องการ, สถาปัตยกรรม, pipeline, API
@@ -36,3 +63,4 @@ benchmarks/ ground truth + metrics     docs/      เอกสาร
 
 ## License
 AGPL-3.0 — ดู [LICENSE](LICENSE)
+

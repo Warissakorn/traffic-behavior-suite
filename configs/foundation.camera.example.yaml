@@ -1,0 +1,7 @@
+projection: planar_homography
+# EXAMPLE ONLY: replace with a surveyed/calibrated pixel-to-metre mapping.
+# Input images must already be undistorted.
+image_to_ground:
+  - [0.1, 0.0, 0.0]
+  - [0.0, 0.1, 0.0]
+  - [0.0, 0.0, 1.0]

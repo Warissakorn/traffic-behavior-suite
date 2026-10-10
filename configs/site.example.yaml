@@ -31,3 +31,4 @@ options:
   ground_method: auto              # auto | bottom_center | footprint | wheel_kp
   smoother: {model: const_accel, resample_dt: 0.1, max_accel: 8.0}
   sightings: {top_k_views: 5}
+

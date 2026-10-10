@@ -8,3 +8,13 @@ dist/
 *.plan
 /models/
 /runs/
+
+demo-output/
+benchmark-output/
+output/
+*.egg-info/
+build/
+dist/
+pytest-of-root/
+core
+core.*
