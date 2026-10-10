@@ -13,7 +13,19 @@ calibrated parameters for micro- and macro-scale traffic simulation.*
 ต่อยอดจาก [traffic-vehicle-counter](https://github.com/Warissakorn/traffic-vehicle-counter)
 และ [Match-Vehicle-AI](https://github.com/Warissakorn/Match-Vehicle-AI)
 
-> สถานะ: **ออกแบบ (Phase 0)** — ยังไม่มีโค้ดใช้งานได้
+> สถานะ: **Foundation (Phase 0)** — มี Python reference pipeline และ synthetic benchmark;
+> ยังต้องตรวจความแม่นยำกับข้อมูลจราจรจริงและพัฒนา calibration/tracking ตาม SPEC
+
+## เริ่มใช้งาน Python reference
+
+```bash
+python -m pip install -e ".[dev]"
+tbs demo --output demo-output
+tbs validate demo-output/fixture/site.yaml
+tbs run demo-output/fixture/site.yaml --output output
+```
+
+ดูขอบเขตที่รองรับและข้อจำกัดใน [`docs/FOUNDATION.md`](docs/FOUNDATION.md)
 
 ## เอกสาร
 - [`docs/SPEC.md`](docs/SPEC.md) — รายละเอียดโปรแกรม: ความต้องการ, สถาปัตยกรรม, pipeline, API
@@ -36,3 +48,4 @@ benchmarks/ ground truth + metrics     docs/      เอกสาร
 
 ## License
 AGPL-3.0 — ดู [LICENSE](LICENSE)
+

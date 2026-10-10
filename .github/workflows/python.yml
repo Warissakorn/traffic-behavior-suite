@@ -1,0 +1,22 @@
+name: Python reference
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ['3.10', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install -e ".[dev]"
+      - run: python -m pytest -q
+      - run: tbs demo --output benchmark-output
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: synthetic-${{ matrix.os }}-${{ matrix.python }}
+          path: benchmark-output

@@ -15,14 +15,23 @@ dependencies = [
   "pyarrow>=14",
   "pyyaml>=6",
   "jsonschema>=4",
+  "av>=12",
 ]
 
 [project.optional-dependencies]
 train = ["torch>=2.2", "torchvision>=0.17", "ultralytics>=8.3", "onnx>=1.15"]
+detect = ["ultralytics>=8.3"]
 reid  = ["faiss-cpu>=1.7"]
 gui   = ["PySide6>=6.6"]
 ocr   = ["easyocr>=1.7"]
 dev   = ["pytest>=7.4"]
 
+[project.scripts]
+tbs = "tbs.cli:main"
+
+[tool.setuptools.package-data]
+tbs = ["schemas/*.json"]
+
 [tool.setuptools.packages.find]
 where = ["python"]
+
