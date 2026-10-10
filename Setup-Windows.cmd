@@ -15,3 +15,4 @@ if errorlevel 1 (
 )
 echo Setup complete. Open Launch-TBS.cmd.
 pause
+exit /b 0

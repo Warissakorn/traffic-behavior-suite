@@ -67,6 +67,10 @@ def test_worker_demo_protocol_and_results(tmp_path):
     assert store.frame(25)["t"]==pytest.approx(2.5)
     assert store.frame_detections(25)[0]["track_id"]==1
     assert len(store.page("trajectories",offset=10,limit=3))==3
+    frames_file=store.path/"frames.parquet"
+    renamed=frames_file.with_suffix(".moved")
+    frames_file.rename(renamed)
+    renamed.rename(frames_file)  # ResultStore must not keep Windows file locks.
     destination=tmp_path/"CSV ภาษาไทย"
     store.export_csv(destination)
     assert (destination/"trajectories.csv").read_bytes().startswith(b'\xef\xbb\xbf')

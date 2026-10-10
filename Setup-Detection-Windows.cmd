@@ -15,3 +15,4 @@ if errorlevel 1 (
 )
 echo Detection setup complete. Choose your local model weights in the GUI.
 pause
+exit /b 0

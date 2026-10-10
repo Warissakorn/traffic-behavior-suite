@@ -21,37 +21,39 @@ class ResultStore:
             if not schema.metadata or schema.metadata.get(b"run_id", b"").decode() != self.manifest["run_id"]:
                 raise ValueError(f"Result metadata mismatch: {name}")
         self.config = json.loads((self.path/"config.resolved.json").read_text(encoding="utf-8"))
-        self.frames_file = pq.ParquetFile(self.path/"frames.parquet")
         self.frame_ends = []
         total = 0
-        for group in range(self.frames_file.num_row_groups):
-            total += self.frames_file.metadata.row_group(group).num_rows
-            self.frame_ends.append(total)
-        self.cached_group, self.cached_frames = None, []
+        with pq.ParquetFile(self.path/"frames.parquet") as file:
+            for group in range(file.num_row_groups):
+                total += file.metadata.row_group(group).num_rows
+                self.frame_ends.append(total)
 
     def page(self, name, offset=0, limit=200, columns=None):
         remaining = limit
         result = []
-        for batch in pq.ParquetFile(self.path/f"{name}.parquet").iter_batches(batch_size=1024, columns=columns):
-            if offset >= batch.num_rows:
-                offset -= batch.num_rows
-                continue
-            selected = batch.slice(offset, min(remaining, batch.num_rows-offset))
-            result.extend(selected.to_pylist())
-            remaining -= selected.num_rows
-            offset = 0
-            if not remaining:
-                break
+        with pq.ParquetFile(self.path/f"{name}.parquet") as file:
+            for batch in file.iter_batches(batch_size=1024, columns=columns):
+                if offset >= batch.num_rows:
+                    offset -= batch.num_rows
+                    continue
+                selected = batch.slice(offset, min(remaining, batch.num_rows-offset))
+                result.extend(selected.to_pylist())
+                remaining -= selected.num_rows
+                offset = 0
+                if not remaining:
+                    break
         return result
 
     def counts(self):
         classes = {}
-        for batch in pq.ParquetFile(self.path/"vehicles.parquet").iter_batches(columns=["vehicle_id", "class_id"]):
-            classes.update({r["vehicle_id"]: r["class_id"] for r in batch.to_pylist()})
+        with pq.ParquetFile(self.path/"vehicles.parquet") as file:
+            for batch in file.iter_batches(columns=["vehicle_id", "class_id"]):
+                classes.update({r["vehicle_id"]: r["class_id"] for r in batch.to_pylist()})
         totals = Counter()
-        for batch in pq.ParquetFile(self.path/"line_crossings.parquet").iter_batches():
-            for row in batch.to_pylist():
-                totals[(row["line_id"], row["direction"], classes.get(row["vehicle_id"], -1))] += 1
+        with pq.ParquetFile(self.path/"line_crossings.parquet") as file:
+            for batch in file.iter_batches():
+                for row in batch.to_pylist():
+                    totals[(row["line_id"], row["direction"], classes.get(row["vehicle_id"], -1))] += 1
         return [dict(line_id=k[0], direction=k[1], class_id=k[2], events=v) for k, v in sorted(totals.items())]
 
     def frame(self, index):
@@ -60,22 +62,23 @@ class ResultStore:
             raise ValueError("Frame index outside run")
         # Independent immutable row-group reads avoid sharing mutable caches
         # between the playback timer and the background preview thread.
-        rows = self.frames_file.read_row_group(group).to_pylist()
+        with pq.ParquetFile(self.path/"frames.parquet") as file:
+            rows = file.read_row_group(group).to_pylist()
         start = self.frame_ends[group-1] if group else 0
         return rows[index-start]
 
     def frame_detections(self, index):
         result = []
         # Row-group statistics skip groups outside the requested frame.
-        file = pq.ParquetFile(self.path/"detections.parquet")
-        column = file.schema.names.index("frame_index")
-        for group in range(file.num_row_groups):
-            stats = file.metadata.row_group(group).column(column).statistics
-            if stats and stats.has_min_max and not stats.min <= index <= stats.max:
-                continue
-            for row in file.read_row_group(group).to_pylist():
-                if row["frame_index"] == index:
-                    result.append(row)
+        with pq.ParquetFile(self.path/"detections.parquet") as file:
+            column = file.schema.names.index("frame_index")
+            for group in range(file.num_row_groups):
+                stats = file.metadata.row_group(group).column(column).statistics
+                if stats and stats.has_min_max and not stats.min <= index <= stats.max:
+                    continue
+                for row in file.read_row_group(group).to_pylist():
+                    if row["frame_index"] == index:
+                        result.append(row)
         return result
 
     def export_csv(self, directory):
@@ -92,7 +95,11 @@ class ResultStore:
             with temp.open("w", encoding="utf-8-sig", newline="") as handle:
                 writer = csv.writer(handle)
                 writer.writerow([*prefix, *(units.get(key,key) for key in names)])
-                batches = [self.counts()] if name == "counts" else (b.to_pylist() for b in pq.ParquetFile(self.path/f"{name}.parquet").iter_batches())
+                def batches_from_file():
+                    with pq.ParquetFile(self.path/f"{name}.parquet") as file:
+                        for batch in file.iter_batches():
+                            yield batch.to_pylist()
+                batches = [self.counts()] if name == "counts" else batches_from_file()
                 for rows in batches:
                     for row in rows:
                         writer.writerow([*prefix.values(), *(row.get(key) for key in names)])

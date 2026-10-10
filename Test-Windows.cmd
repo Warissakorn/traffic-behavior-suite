@@ -15,3 +15,4 @@ if errorlevel 1 (
 )
 echo Windows test PASS.
 pause
+exit /b 0
