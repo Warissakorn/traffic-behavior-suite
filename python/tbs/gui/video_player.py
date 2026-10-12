@@ -125,6 +125,7 @@ class VideoPlayer(QWidget):
         self.position = payload["t_video"]
         self.at_end = payload["eof"]
         self.duration = payload["info"]["duration_s"]
+        self.canvas.detections = []
         self.canvas.set_image(payload["image"], fit=first or self.canvas.auto_fit)
         self.play_button.setEnabled(True)
         self.rewind_button.setEnabled(True)
@@ -186,3 +187,4 @@ class VideoPlayer(QWidget):
             return False
         self.reader.close()
         return True
+

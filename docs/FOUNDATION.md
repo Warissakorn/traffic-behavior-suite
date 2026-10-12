@@ -86,7 +86,11 @@ accepted by this narrower runtime. The installed validation schema is bundled at
 
 CI exercises the synthetic regression on Windows/Linux and Python 3.10/3.12.
 The YOLO adapter still requires a smoke test with the team's actual local weights.
+The model registry, one-frame preflight, manifest provenance and isolated detector
+performance comparison are described in `docs/MODELS.md`. CI's optional detector
+job uses randomly initialized local YOLO11/YOLO26 weights for compatibility only.
 
 `tbs validate configs/project.example.yaml --kind project` validates the project,
 each referenced site, a common epoch and link references. Project execution and
 cross-site matching remain future work.
+

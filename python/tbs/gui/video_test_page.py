@@ -1,11 +1,13 @@
 """Video-first test workspace; no site file or camera calibration required."""
 from pathlib import Path
+import numpy as np
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
                               QSplitter, QPushButton, QScrollArea)
 from .video_player import VideoPlayer, clock
 from .widgets import DetectorOptions, file_field, VIDEO_FILTER, MODEL_FILTER
 from ..video_test import validate_config
+from .model_selector import ModelSelector
 
 
 class VideoTestPage(QWidget):
@@ -39,9 +41,10 @@ class VideoTestPage(QWidget):
         form.addWidget(self.video_info)
         form.addSpacing(12)
         form.addWidget(QLabel("โมเดลตรวจจับในเครื่อง"))
-        self.model_path = QLineEdit(settings.value("test_model", ""))
-        self.model_path.setPlaceholderText("เลือก weights เช่น traffic.pt")
-        form.addWidget(file_field(self.model_path, "เลือกโมเดลตรวจจับ", MODEL_FILTER))
+        self.model_selector = ModelSelector()
+        self.model_path = self.model_selector.path
+        self.model_path.setText(settings.value("test_model", ""))
+        form.addWidget(self.model_selector)
         self.options = DetectorOptions()
         form.addWidget(self.options)
         form.addSpacing(12)
@@ -80,6 +83,11 @@ class VideoTestPage(QWidget):
         footer_box.addWidget(self.site_button)
         panel_box.addWidget(footer)
         self.player = VideoPlayer()
+        self.model_selector.options_provider = self.options.values
+        self.model_selector.image_provider = lambda: self.player.canvas.image
+        self.model_selector.checked.connect(self.show_model_preview)
+        self.options.changed.connect(self.clear_model_preview)
+        self.model_path.textChanged.connect(self.clear_model_preview)
         self.player.loaded.connect(self.loaded)
         self.player.failed.connect(self.failed)
         self.panel_toggle = QPushButton("แผงตั้งค่า")
@@ -129,9 +137,12 @@ class VideoTestPage(QWidget):
 
     def start_test(self):
         try:
+            if self.model_selector.busy():
+                raise ValueError("รอการตรวจโมเดลให้เสร็จก่อน")
             if not self.player.ready:
                 raise ValueError("เปิดวิดีโอให้สำเร็จก่อนเริ่มทดสอบ")
             config = validate_config(dict(video=self.video_path.text(), detector=self.model_path.text(),
+                                          detector_sha256=self.model_selector.expected_sha256(),
                                           options=self.options.values()))
             self.settings.setValue("test_model", config["detector"])
             self.player.pause()
@@ -151,3 +162,15 @@ class VideoTestPage(QWidget):
 
     def save_state(self):
         self.settings.setValue("video_split", self.split.saveState())
+
+    def show_model_preview(self, result):
+        self.player.pause()
+        same_frame = self.player.ready and result.get("preview_rgb") is not None and np.array_equal(
+            self.player.canvas.image, result["preview_rgb"])
+        self.player.canvas.detections = result["detections"] if same_frame else []
+        self.player.canvas.redraw()
+
+    def clear_model_preview(self):
+        self.player.canvas.detections = []
+        self.player.canvas.redraw()
+

@@ -23,10 +23,13 @@
           "properties": {"id": {"type": "string", "minLength": 1}, "p1": {"$ref": "#/$defs/point"}, "p2": {"$ref": "#/$defs/point"}, "reid_reference": {"type": "boolean"}}}}
       }},
     "models": {"type": "object", "required": ["detector"], "additionalProperties": false,
-      "properties": {"detector": {"type": "string", "minLength": 1}, "reid": {"type": "string"}}},
+      "properties": {"detector": {"type": "string", "minLength": 1}, "reid": {"type": "string"},
+        "detector_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}},
     "options": {"type": "object", "additionalProperties": false,
       "properties": {
         "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "iou": {"type": "number", "minimum": 0, "maximum": 1},
+        "image_size": {"type": "integer", "minimum": 32, "maximum": 4096, "multipleOf": 32},
         "class_ids": {"type": "array", "items": {"type": "integer", "minimum": 0, "maximum": 32767}, "uniqueItems": true},
         "device": {"type": "string"},
         "track_max_distance_m": {"type": "number", "exclusiveMinimum": 0},
@@ -37,3 +40,4 @@
   },
   "$defs": {"point": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": "number"}}}
 }
+

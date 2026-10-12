@@ -23,6 +23,7 @@ from .video_player import VideoPlayer
 from .video_test_page import VideoTestPage
 from .widgets import DetectorOptions, VIDEO_FILTER, MODEL_FILTER, file_field
 from .theme import STYLE
+from .model_selector import ModelSelector
 
 
 def button(text, callback):
@@ -125,6 +126,10 @@ class MainWindow(QMainWindow):
         self.statusBar().addPermanentWidget(self.site_label)
         self.statusBar().showMessage("พร้อม · เปิดวิดีโอเพื่อเริ่มทดสอบ")
         self.populate()
+        self.model_selector.registered.connect(self.video_page.model_selector.refresh)
+        self.video_page.model_selector.registered.connect(self.model_selector.refresh)
+        self.model_selector.registered.connect(self.changed)
+        self.model_selector.checked.connect(lambda _: self.changed())
         geometry = self.settings.value("window_geometry")
         if geometry is not None:
             self.restoreGeometry(geometry)
@@ -245,8 +250,9 @@ class MainWindow(QMainWindow):
         tabs.addTab(lines,"เส้นนับ")
         model = QWidget()
         form = QFormLayout(model)
-        self.model_path = QLineEdit()
-        form.addRow("Weights",self.path_widget(self.model_path))
+        self.model_selector = ModelSelector()
+        self.model_path = self.model_selector.path
+        form.addRow(self.model_selector)
         self.model_options = DetectorOptions()
         self.model_options.changed.connect(self.changed)
         form.addRow(self.model_options)
@@ -263,6 +269,8 @@ class MainWindow(QMainWindow):
         model_scroll.setWidget(model)
         tabs.addTab(model_scroll,"โมเดล")
         self.setup_player = VideoPlayer()
+        self.model_selector.options_provider = self.model_options.values
+        self.model_selector.image_provider = lambda: self.setup_player.canvas.image
         self.setup_canvas = self.setup_player.canvas
         self.setup_canvas.line_changed.connect(self.line_changed)
         self.setup_canvas.problem.connect(self.show_error)
@@ -425,6 +433,9 @@ class MainWindow(QMainWindow):
         self.document = SiteDocument()
         self.document.config["videos"] = [dict(path=path, start_time=self.document.config["epoch"])]
         self.document.config["models"]["detector"] = model
+        expected = self.video_page.model_selector.expected_sha256()
+        if expected:
+            self.document.config["models"]["detector_sha256"] = expected
         self.document.config["options"].update(options)
         self.populate()
         self.dirty = True
@@ -449,11 +460,12 @@ class MainWindow(QMainWindow):
         self.site_id.setText(c.get("site_id",""))
         self.epoch.setText(c.get("epoch",c.get("videos",[{}])[0].get("start_time","") if c.get("videos") else ""))
         self.camera_path.setText(c.get("camera",{}).get("model_file",""))
-        self.model_path.setText(c.get("models",{}).get("detector",""))
+        self.model_selector.set_path(c.get("models",{}).get("detector",""),
+                                     c.get("models",{}).get("detector_sha256"))
         options = c.get("options",{})
         self.model_options.set_values(options)
         self.options.setPlainText(json.dumps({key:value for key,value in options.items()
-            if key not in {"confidence", "device", "class_ids"}},indent=2))
+            if key not in {"confidence", "device", "class_ids", "image_size", "iou"}},indent=2))
         self.videos.setRowCount(0)
         for clip in c.get("videos",[]):
             self.append_row(self.videos,[clip.get("path",""),clip.get("start_time","")])
@@ -470,10 +482,13 @@ class MainWindow(QMainWindow):
         c["videos"] = [{"path":self.cell(self.videos,i,0),"start_time":self.cell(self.videos,i,1)} for i in range(self.videos.rowCount())]
         c.setdefault("camera",{})["model_file"] = self.camera_path.text().strip()
         c.setdefault("models",{})["detector"] = self.model_path.text().strip()
+        c["models"].pop("detector_sha256", None)
+        if self.model_selector.expected_sha256():
+            c["models"]["detector_sha256"] = self.model_selector.expected_sha256()
         c["options"] = json.loads(self.options.toPlainText())
         if not isinstance(c["options"], dict):
             raise ValueError("ตัวเลือกขั้นสูงต้องเป็น JSON object")
-        for key in ["confidence", "device", "class_ids"]:
+        for key in ["confidence", "device", "class_ids", "image_size", "iou"]:
             c["options"].pop(key, None)
         c["options"].update(self.model_options.values())
         previous = {line["id"]:line for line in c.get("road",{}).get("count_lines",[])}
@@ -721,6 +736,8 @@ class MainWindow(QMainWindow):
     def prepare_run(self):
         if self.job.active:
             return False
+        if self.model_selector.busy() or self.video_page.model_selector.busy():
+            raise ValueError("รอการตรวจโมเดลให้เสร็จก่อนเริ่มงาน")
         if not self.output_path.text().strip():
             raise ValueError("เลือกโฟลเดอร์ผลลัพธ์ก่อนเริ่ม")
         output = Path(self.output_path.text()).expanduser().resolve()
@@ -952,6 +969,7 @@ class MainWindow(QMainWindow):
         stopped = [service.stop() for service in [self.preview_tasks,self.result_tasks,self.export_tasks,
                                                    self.validation_tasks,self.import_tasks]]
         stopped += [self.video_page.player.stop(), self.setup_player.stop()]
+        stopped += [self.model_selector.stop(), self.video_page.model_selector.stop()]
         if stopped[0]:
             self.review_reader.close()
         return all(stopped)
@@ -979,3 +997,4 @@ class MainWindow(QMainWindow):
         self.settings.setValue("setup_split",self.setup_split.saveState())
         self.video_page.save_state()
         event.accept()
+

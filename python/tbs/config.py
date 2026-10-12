@@ -6,6 +6,7 @@ import json
 import numpy as np
 import yaml
 from jsonschema import Draft202012Validator, FormatChecker
+from .models import local_model, detector_options
 
 
 def timestamp(value):
@@ -57,6 +58,7 @@ def load_site(path):
         if not model.is_file():
             raise ValueError(f"Detector model not found: {model}")
         config["models"]["detector"] = str(model)
+        local_model(model, config["models"].get("detector_sha256"))
     road = config["road"]
     for key in ("lanes", "count_lines"):
         ids = [item["id"] for item in road.get(key, [])]
@@ -67,7 +69,7 @@ def load_site(path):
             raise ValueError(f"Zero-length count line: {line['id']}")
     if road.get("zones"):
         raise ValueError("OD zones are not supported by the Foundation pipeline yet")
-    config.setdefault("options", {})
+    config["options"] = detector_options(config.get("options", {}))
     return config
 
 
@@ -99,3 +101,4 @@ def load_project(path):
             raise ValueError("Duplicate project links")
         edges.add(edge)
     return config
+

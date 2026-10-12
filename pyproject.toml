@@ -16,11 +16,12 @@ dependencies = [
   "pyyaml>=6",
   "jsonschema>=4",
   "av>=12",
+  "psutil>=5.9",
 ]
 
 [project.optional-dependencies]
-train = ["torch>=2.2", "torchvision>=0.17", "ultralytics>=8.3", "onnx>=1.15"]
-detect = ["ultralytics>=8.3"]
+train = ["torch>=2.2", "torchvision>=0.17", "ultralytics==8.4.63", "onnx>=1.15"]
+detect = ["ultralytics==8.4.63"]
 reid  = ["faiss-cpu>=1.7"]
 gui   = ["PySide6>=6.6"]
 ocr   = ["easyocr>=1.7"]
@@ -34,4 +35,5 @@ tbs = ["schemas/*.json"]
 
 [tool.setuptools.packages.find]
 where = ["python"]
+
 

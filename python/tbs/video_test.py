@@ -13,6 +13,7 @@ from .events import CancelledError
 from .pipeline import file_hash
 from .storage import Writer
 from .video import frames, probe_video
+from .models import model_path, detector_options, describe_detector
 
 
 def validate_config(config, base=None):
@@ -29,20 +30,15 @@ def validate_config(config, base=None):
             raise ValueError(f"ไม่พบไฟล์{label}: {path}")
         resolved[key] = str(path)
     options = config.get("options", {})
-    if not isinstance(options, dict) or set(options) - {"confidence", "device", "class_ids"}:
-        raise ValueError("ตัวเลือกทดสอบรองรับ confidence, device และ class_ids")
-    confidence = options.get("confidence", 0.25)
-    if isinstance(confidence, bool) or not isinstance(confidence, (int, float)) or not 0 <= confidence <= 1:
-        raise ValueError("Confidence ต้องอยู่ระหว่าง 0 และ 1")
-    device = options.get("device", "cpu")
-    if not isinstance(device, str) or not device.strip():
-        raise ValueError("ระบุ device เช่น cpu หรือ 0")
-    classes = options.get("class_ids")
-    if classes is not None and (not isinstance(classes, list) or
-            any(type(key) is not int or not 0 <= key <= 32767 for key in classes) or
-            len(classes) != len(set(classes))):
-        raise ValueError("Class IDs ต้องเป็นจำนวนเต็มที่ไม่ซ้ำกัน ระหว่าง 0–32767")
-    resolved["options"] = dict(options, confidence=confidence, device=device.strip())
+    if not isinstance(options, dict) or set(options) - {"confidence", "device", "class_ids", "image_size", "iou"}:
+        raise ValueError("ตัวเลือกทดสอบรองรับ confidence, device, class_ids, image_size และ iou")
+    expected = config.get("detector_sha256")
+    model_path(resolved["detector"])
+    if expected is not None:
+        if not isinstance(expected, str) or len(expected) != 64 or any(c not in "0123456789abcdef" for c in expected):
+            raise ValueError("detector_sha256 must be a lowercase SHA-256 hash")
+        resolved["detector_sha256"] = expected
+    resolved["options"] = detector_options(options)
     return resolved
 
 
@@ -66,6 +62,8 @@ def run(config_path, output_dir, on_progress=None, should_cancel=None):
                   videos=[dict(path=test["video"], start_time=epoch)],
                   models=dict(detector=test["detector"]), options=test["options"],
                   road=dict(count_lines=[]))
+    if "detector_sha256" in test:
+        config["models"]["detector_sha256"] = test["detector_sha256"]
     config_hash = hashlib.sha256(json.dumps(config, sort_keys=True).encode()).hexdigest()
     run_id = str(uuid.uuid4())
     out = Path(output_dir).resolve() / run_id
@@ -90,6 +88,9 @@ def run(config_path, output_dir, on_progress=None, should_cancel=None):
         report["model_hashes"] = dict(detector=file_hash(test["detector"]))
         check_cancel()
         detector = make_detector(config)
+        report["detector_model"] = describe_detector(detector, test["detector"], test["options"],
+                                                     test.get("detector_sha256"))
+        report["model_hashes"]["detector"] = report["detector_model"]["sha256"]
         check_cancel()
         with ExitStack() as stack:
             writers = {}
@@ -102,7 +103,9 @@ def run(config_path, output_dir, on_progress=None, should_cancel=None):
             for index, clip_index, t_video, t, image in frames(config):
                 check_cancel()
                 buffers["frames"].append(dict(frame_index=index, clip_index=clip_index, t_video=t_video, t=t))
-                for cls, score, x1, y1, x2, y2 in detector.detect(image):
+                detections = detector.detect(image)
+                report["detector_model"].update(getattr(detector, "metadata", {}))
+                for cls, score, x1, y1, x2, y2 in detections:
                     buffers["detections"].append(dict(frame_index=index, t=t, det_id=report["detections"],
                         class_id=cls, score=score, x1=x1, y1=y1, x2=x2, y2=y2,
                         gx=None, gy=None, ground_method=None, track_id=None))
@@ -142,3 +145,4 @@ def run(config_path, output_dir, on_progress=None, should_cancel=None):
                       error=f"{type(exc).__name__}: {exc}", finished_at=datetime.now(timezone.utc).isoformat())
         save_report()
         raise
+
