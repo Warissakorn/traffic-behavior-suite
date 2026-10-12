@@ -30,6 +30,7 @@ tbs run demo-output/fixture/site.yaml --output output
 ## GUI และ Windows Test
 
 บน Windows: ติดตั้ง Python 3.12 x64 → `Setup-Windows.cmd` → `Launch-TBS.cmd`
+Python environment และ dependencies ทั้งหมดอยู่ใน `.venv` ภายในโปรเจกต์ (ไม่รวมใน Git)
 เปิดวิดีโอได้ทันทีในหน้า **ทดสอบวิดีโอ**; ตัวอย่างจำลองอยู่ในแท็บ **ตัวอย่าง / ล่าสุด**
 `Test-Windows.cmd` ตรวจ benchmark และ GUI/worker
 โมเดลจริงเพิ่ม dependencies ด้วย `Setup-Detection-Windows.cmd` และเลือก local weights

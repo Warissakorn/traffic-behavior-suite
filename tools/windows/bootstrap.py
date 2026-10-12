@@ -1,4 +1,4 @@
-"""Source launchers use a per-user venv and never elevate or change shell policy."""
+"""Source launchers use the project's venv and never change shell policy."""
 import argparse
 import hashlib
 import json
@@ -11,8 +11,7 @@ import venv
 
 ROOT = Path(__file__).resolve().parents[2]
 BASE = Path(os.environ.get("LOCALAPPDATA",Path.home()/"AppData/Local"))/"TrafficBehaviorSuite"
-KEY = hashlib.sha256(str(ROOT).encode()).hexdigest()[:12]
-ENV = BASE/"environments"/("gui-test-"+KEY)
+ENV = ROOT/".venv"
 PYTHON = ENV/"Scripts/python.exe"
 MARKER = ENV/"tbs-install.json"
 

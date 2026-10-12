@@ -73,8 +73,14 @@ py -3.12 -m venv .venv-build
 
 ## เมื่อพบปัญหา
 
+environment รุ่นเดิมใน LOCALAPPDATA สามารถคัดลอกเข้าโปรเจกต์โดยรัน
+`py -3.12 tools/windows/migrate_environment.py` เมื่อยังไม่มี `.venv`
+เครื่องมือนี้คัดลอก dependencies และปรับ launcher โดยเก็บต้นฉบับไว้ ไม่ดาวน์โหลดแพ็กเกจใหม่
+ยังต้องติดตั้ง Python 3.12 x64; `.venv` ไม่ใช่ portable build และเมื่อย้ายโปรเจกต์ต้องรัน Setup ใหม่
+
 * เปิด `Launch-TBS-Debug.cmd` เพื่อเห็น traceback และข้อความ dependency
-* log/settings/environment อยู่ใน `%LOCALAPPDATA%/TrafficBehaviorSuite`
+* environment และ dependencies อยู่ใน `.venv` ภายในโฟลเดอร์โปรเจกต์ (ไม่รวมใน Git)
+* log/settings อยู่ใน `%LOCALAPPDATA%/TrafficBehaviorSuite`
 * log งานอยู่ใน `sessions/<session>.log`; launcher log อยู่ใน `logs/startup.log`
 * ยกเลิกปกติรอเฟรม/stage ปัจจุบันคืน control; หลัง 5 วินาทีเลือก force-stop ได้
 * failed/cancelled/interrupted run เป็นผลบางส่วน ไม่เปิดเป็นผลวิเคราะห์สำเร็จ

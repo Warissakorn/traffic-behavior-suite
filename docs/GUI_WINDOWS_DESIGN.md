@@ -291,7 +291,7 @@ Setup ใช้อินเทอร์เน็ตสำหรับ dependency
 
 ใช้ `%~dp0` ระบุตำแหน่ง launcher, quote path ทุกจุด,
 ส่ง user paths ผ่าน argument list ใน Python; ไม่เปลี่ยน PowerShell execution policy
-venv/cache ใช้โฟลเดอร์ที่เขียนได้ใน LOCALAPPDATA แยกตาม build ID;
+source venv อยู่ใน `.venv` ภายในโปรเจกต์; cache อยู่ใน LOCALAPPDATA;
 เส้นทาง source เปลี่ยนให้ตรวจ marker และสร้าง environment ใหม่เมื่อจำเป็น
 Setup ที่ถูกขัดจังหวะต้องไม่สร้าง marker สำเร็จ; มี repair/reset environment ชัดเจน
 
