@@ -84,6 +84,10 @@ def measure(request):
             for _, _, pts, _, image in iterator:
                 before = time.perf_counter()
                 result = detector.detect(image)
+                if cuda_device is None:
+                    runtime_device = getattr(getattr(getattr(detector, "model", None), "predictor", None), "device", None)
+                    if torch is not None and getattr(runtime_device, "type", None) == "cuda":
+                        cuda_device = runtime_device
                 if cuda_device is not None:
                     torch.cuda.synchronize(cuda_device)
                 inference_seconds += time.perf_counter() - before

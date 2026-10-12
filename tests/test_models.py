@@ -127,7 +127,7 @@ def test_manifest_records_actual_classes_and_selected_options(tmp_path, monkeypa
     assert card["class_names"] == {"2": "car"}
     assert card["options"]["image_size"] == 320
     assert card["sha256"] == report["model_hashes"]["detector"]
-    assert json.loads((out / "manifest.json").read_text())["detector_model"] == card
+    assert json.loads((out / "manifest.json").read_text(encoding="utf-8"))["detector_model"] == card
 
 
 def test_comparison_uses_distinct_processes_same_pts_and_reports_failure(tmp_path, monkeypatch):
@@ -162,7 +162,7 @@ def test_comparison_uses_distinct_processes_same_pts_and_reports_failure(tmp_pat
     assert report["status"] == "failed"
     assert [row["status"] for row in report["models"]] == ["failed", "completed"]
     assert "bad fixture" in report["models"][0]["error"]
-    assert json.loads((out / "comparison.json").read_text())["status"] == "failed"
+    assert json.loads((out / "comparison.json").read_text(encoding="utf-8"))["status"] == "failed"
 
 
 @pytest.mark.parametrize("architecture", ["yolo11n", "yolo26n"])

@@ -164,14 +164,18 @@ def test_local_model_picker_registers_selects_and_checks_off_thread(app, tmp_pat
     model = tmp_path / "รถไทย.pt"
     model.write_bytes(b"fixture")
     widget = ModelSelector(registry=ModelRegistry(tmp_path / "models.json"))
-    widget.path.setText(str(model))
+    monkeypatch.chdir(tmp_path)
+    widget.path.setText(model.name)
     widget.profile.setCurrentIndex(widget.profile.findData("yolo26s"))
     widget.register_current()
     pump(app, lambda: not widget.busy())
     assert widget.records[0]["preset"] == "yolo26s"
+    assert widget.path.text() == str(model)
+    assert widget.expected_sha256() == file_hash(model)
     widget.path.clear()
     widget.select_saved(1)
     assert widget.path.text() == str(model)
+    assert widget.saved.currentIndex() == 1
     assert widget.expected_sha256() == file_hash(model)
     import threading
     main_thread = threading.get_ident()

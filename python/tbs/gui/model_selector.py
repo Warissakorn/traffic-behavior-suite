@@ -68,10 +68,12 @@ class ModelSelector(QWidget):
         self.path.setText(row["path"])
         self.expected_hash = row["sha256"]
         self.profile.setCurrentIndex(max(0, self.profile.findData(row["preset"])))
+        self.saved.setCurrentIndex(index)
         self.info.setText(f"{row['filename']} · SHA-256 {row['sha256'][:12]}…\nตรวจและลองโมเดลก่อนใช้งาน")
 
     def path_changed(self):
         self.expected_hash = None
+        self.saved.setCurrentIndex(0)
         self.info.setText("ยังไม่ได้ตรวจโมเดลที่เลือก")
 
     def profile_changed(self):
@@ -94,7 +96,7 @@ class ModelSelector(QWidget):
 
     def register_current(self):
         path, preset = self.path.text().strip(), self.profile.currentData()
-        self.begin(lambda: dict(kind="register", record=self.registry.register(path, preset=preset)))
+        self.begin(lambda: dict(kind="register", source_path=path, record=self.registry.register(path, preset=preset)))
 
     def check_current(self):
         try:
@@ -120,8 +122,10 @@ class ModelSelector(QWidget):
             row = payload["record"]
             self.refresh()
             self.saved.setCurrentIndex(self.saved.findData(row["id"]))
-            if row["path"] == self.path.text().strip():
+            if payload["source_path"] == self.path.text().strip():
+                self.path.setText(row["path"])
                 self.expected_hash = row["sha256"]
+                self.saved.setCurrentIndex(self.saved.findData(row["id"]))
             self.info.setText("เพิ่มไฟล์ในรายการแล้ว · ยังต้องตรวจ task และลอง inference")
             self.registered.emit()
         else:
@@ -143,6 +147,8 @@ class ModelSelector(QWidget):
                 same_options = False
             if same_options:
                 self.checked.emit(result)
+            else:
+                self.info.setText("ตัวเลือกเปลี่ยนระหว่างตรวจ กรุณาลองโมเดลอีกครั้ง")
 
     def expected_sha256(self):
         return self.expected_hash
