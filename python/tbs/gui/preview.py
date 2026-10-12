@@ -1,9 +1,9 @@
 """Bounded background requests and an image-coordinate geometry canvas."""
-import av
 import numpy as np
 from PySide6.QtCore import QObject, QThread, Signal, Qt, QPointF
 from PySide6.QtGui import QImage, QPixmap, QPen, QColor
-from PySide6.QtWidgets import QGraphicsView, QGraphicsScene
+from PySide6.QtWidgets import QGraphicsView, QGraphicsScene, QLabel, QGraphicsItem
+from ..video import VideoReader
 
 
 class Task(QThread):
@@ -61,30 +61,11 @@ class TaskService(QObject):
 
 
 def decode_image(path, t_video=0.0):
-    with av.open(str(path)) as container:
-        if not container.streams.video:
-            raise ValueError("No video stream")
-        stream = container.streams.video[0]
-        first = next(container.decode(stream), None)
-        if first is None or first.pts is None:
-            raise ValueError("No timestamped video frames")
-        target = first.pts*float(first.time_base)+t_video
-        if t_video <= 0:
-            return first.to_ndarray(format="rgb24")
-        container.seek(int(target/float(stream.time_base)), stream=stream, backward=True)
-        best, error = None, float("inf")
-        for frame in container.decode(stream):
-            if frame.pts is None:
-                continue
-            current = frame.pts*float(frame.time_base)
-            distance = abs(current-target)
-            if distance < error:
-                best, error = frame, distance
-            if current >= target:
-                break
-        if best is None:
-            raise ValueError("Cannot seek to requested PTS")
-        return best.to_ndarray(format="rgb24")
+    reader = VideoReader()
+    try:
+        return reader.read(path, t_video)["image"]
+    finally:
+        reader.close()
 
 
 def projection(matrix, point):
@@ -101,7 +82,7 @@ class Canvas(QGraphicsView):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setScene(QGraphicsScene(self))
-        self.setMinimumHeight(250)
+        self.setMinimumSize(160, 180)
         self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
         self.matrix = None
         self.lines = []
@@ -111,16 +92,33 @@ class Canvas(QGraphicsView):
         self.drawing = False
         self.first = None
         self.drag = None
+        self.auto_fit = True
         self.setBackgroundBrush(QColor("#111c2e"))
+        self.placeholder = QLabel("ยังไม่มีภาพวิดีโอ\nเลือกไฟล์วิดีโอเพื่อเริ่ม", self.viewport())
+        self.placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.placeholder.setStyleSheet("color:#b7c5d9;background:transparent;font-size:16px;")
+        self.placeholder.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
 
     def set_image(self, image, fit=True):
         self.image = np.ascontiguousarray(image)
         self.redraw()
         if fit:
+            self.fit_image()
+
+    def fit_image(self):
+        self.auto_fit = True
+        if self.image is not None:
+            self.fitInView(self.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.placeholder.setGeometry(self.viewport().rect())
+        if self.auto_fit and self.image is not None:
             self.fitInView(self.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
 
     def redraw(self):
         self.scene().clear()
+        self.placeholder.setVisible(self.image is None)
         if self.image is None:
             return
         height, width, _ = self.image.shape
@@ -138,21 +136,29 @@ class Canvas(QGraphicsView):
                 pen.setCosmetic(True)
                 self.scene().addLine(*a, *b, pen)
                 for point in (a,b):
-                    self.scene().addEllipse(point[0]-4, point[1]-4, 8, 8, pen)
+                    marker = self.scene().addEllipse(-4, -4, 8, 8, pen)
+                    marker.setPos(*point)
+                    marker.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations)
                 label = self.scene().addText(line["id"]+"  p1→p2")
+                label.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations)
                 label.setDefaultTextColor(pen.color())
                 label.setPos(*a)
         pen = QPen(QColor("#65b7ff"), 2)
         pen.setCosmetic(True)
         for row in self.detections:
             self.scene().addRect(row["x1"], row["y1"], row["x2"]-row["x1"], row["y2"]-row["y1"], pen)
-            label = self.scene().addText(f"ID {row['track_id']} · class {row['class_id']}")
+            identity = f"ID {row['track_id']} · " if row.get("track_id") is not None else ""
+            label = self.scene().addText(f"{identity}class {row['class_id']} · {row['score']:.0%}")
+            label.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations)
             label.setDefaultTextColor(QColor("#ffffff"))
-            label.setPos(row["x1"], row["y1"]-20)
+            label.setPos(row["x1"], row["y1"])
         if self.first is not None:
-            self.scene().addEllipse(self.first[0]-4,self.first[1]-4,8,8,pen)
+            marker = self.scene().addEllipse(-4,-4,8,8,pen)
+            marker.setPos(*self.first)
+            marker.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations)
 
     def wheelEvent(self, event):
+        self.auto_fit = False
         factor = 1.2 if event.angleDelta().y() > 0 else 1/1.2
         if 0.02 < self.transform().m11()*factor < 30:
             self.scale(factor, factor)

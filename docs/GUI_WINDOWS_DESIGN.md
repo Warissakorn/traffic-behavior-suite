@@ -1,5 +1,12 @@
 # แบบ GUI และตัวเปิดทดสอบบน Windows
 
+Implementation update: the Start workspace now opens real video without site/calibration,
+supports camera-free whole-clip detection, and uses resizable/collapsible settings panels.
+The synthetic demo/recent sites live in the second Start tab. Video/results playback
+uses persistent bounded PTS decoders, and settings forms scroll within their own panels.
+See [WINDOWS_TEST.md](WINDOWS_TEST.md) for the current workflow; the sections below retain
+the original design and future scope.
+
 สถานะ: **แบบอ้างอิงสำหรับ implementation GUI Test 0.1**  
 วันที่: 10 ตุลาคม 2026  
 ฐานโค้ด: PR #1, commit `984c773f86fb646db170b47841afe54acc8b5ce9`  

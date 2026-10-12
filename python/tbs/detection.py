@@ -18,7 +18,10 @@ class SyntheticColorDetector:
 
 class YoloDetector:
     def __init__(self, path, options):
-        from ultralytics import YOLO
+        try:
+            from ultralytics import YOLO
+        except ImportError as exc:
+            raise ValueError("ยังไม่ได้ติดตั้งส่วนตรวจจับ: เปิด Setup-Detection-Windows.cmd หรือติดตั้ง tbs[detect]") from exc
         self.model = YOLO(path)
         self.options = options
 

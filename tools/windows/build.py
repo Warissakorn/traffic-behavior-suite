@@ -19,6 +19,7 @@ def main():
                  "--collect-data","tbs","--collect-all","av","--collect-all","pyarrow",
                  "--hidden-import","scipy.signal","--hidden-import","tbs.worker",
                  "--hidden-import","tbs.detection",
+                 "--hidden-import","tbs.video_test",
                  "--exclude-module","PySide6.QtWebEngineCore","--exclude-module","PySide6.QtWebEngineWidgets",
                  "--exclude-module","PySide6.QtPdf","--exclude-module","tkinter"]
         if name=="TBS":

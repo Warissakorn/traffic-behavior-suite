@@ -18,13 +18,11 @@ def main(smoke=False):
     font.setPointSize(10)
     app.setFont(font)
     app.setStyle("Fusion")
-    app.setStyleSheet("QWidget{font-size:13px;} QMainWindow{background:#f1f5fa;} QPushButton{padding:9px 14px;} QListWidget{background:#e6edf7;} QLineEdit,QPlainTextEdit,QTableWidget{background:white;} QProgressBar{min-height:22px;}")
     window = MainWindow()
     window.show()
     if not smoke:
         code = app.exec()
-        for service in [window.preview_tasks,window.result_tasks,window.export_tasks]:
-            service.stop()
+        window.stop_services()
         import shiboken6
         shiboken6.delete(window)
         return code
@@ -46,8 +44,7 @@ def main(smoke=False):
     timer.start(60000)
     app.exec()
     timer.stop()
-    for service in [window.preview_tasks,window.result_tasks,window.export_tasks]:
-        service.stop()
+    window.stop_services()
     window.dirty = False
     window.close()
     # Dispose scenes/pixmaps and stopped QThreads while QApplication still exists.

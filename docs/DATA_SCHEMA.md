@@ -3,6 +3,11 @@
 ข้อมูลทุกชนิดเก็บเป็น **Parquet** ภายใต้ `<output_dir>/<run_id>/` และทุกไฟล์มี metadata
 `schema_version`, `run_id`, `config_hash`, `engine_version`
 
+Runtime Foundation ใช้ subset `1-foundation` ตาม `python/tbs/storage.py`.
+ในโหมดทดสอบ detection (`run_mode: video_test`) กรอบเป็นพิกัดภาพ หน่วย px;
+`gx`, `gy`, `ground_method`, `track_id` เป็น null และตาราง vehicles/trajectories/
+line_crossings ว่าง ส่วน epoch เป็นเวลาเริ่มงาน ไม่ใช่เวลาถ่ายจริง
+
 หน่วย: ระยะทาง **เมตร**, เวลา **วินาที** (float64), ความเร็ว **ม./วินาที**, มุม **เรเดียน**
 เวลา `t` = วินาทีนับจาก `epoch` ของ project (UTC, ระบุใน `project.yaml`) หลังแก้ clock offset แล้ว
 
