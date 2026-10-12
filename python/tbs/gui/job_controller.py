@@ -28,9 +28,11 @@ class JobController(QObject):
         self.session = None
         self.protocol_error = None
 
-    def start(self, output, config=None, demo=False):
+    def start(self, output, config=None, demo=False, video_test=None):
         if self.active:
             raise ValueError("มีงานกำลังประมวลผลอยู่")
+        if sum([bool(config), bool(demo), bool(video_test)]) != 1:
+            raise ValueError("เลือกงานเพียงชนิดเดียว: site, demo หรือ video test")
         self.parser = EventParser()
         self.session = str(uuid.uuid4())
         sessions = data_dir()/"sessions"
@@ -42,7 +44,10 @@ class JobController(QObject):
         self.protocol_error = None
         self.terminal = None
         args = ["--output", str(Path(output).resolve()), "--control", str(self.control), "--session", self.session]
-        args += ["--demo"] if demo else ["--config", str(Path(config).resolve())]
+        if demo:
+            args += ["--demo"]
+        else:
+            args += ["--video-test" if video_test else "--config", str(Path(video_test or config).resolve())]
         if getattr(sys, "frozen", False):
             program = str(Path(sys.executable).parent/"TBSWorker.exe")
         else:

@@ -30,7 +30,8 @@ tbs run demo-output/fixture/site.yaml --output output
 ## GUI และ Windows Test
 
 บน Windows: ติดตั้ง Python 3.12 x64 → `Setup-Windows.cmd` → `Launch-TBS.cmd`
-แล้วกด **ทดสอบตัวอย่าง**; `Test-Windows.cmd` ตรวจ benchmark และ GUI/worker
+เปิดวิดีโอได้ทันทีในหน้า **ทดสอบวิดีโอ**; ตัวอย่างจำลองอยู่ในแท็บ **ตัวอย่าง / ล่าสุด**
+`Test-Windows.cmd` ตรวจ benchmark และ GUI/worker
 โมเดลจริงเพิ่ม dependencies ด้วย `Setup-Detection-Windows.cmd` และเลือก local weights
 
 ```bash
@@ -38,8 +39,10 @@ python -m pip install -e ".[gui]"
 tbs gui
 ```
 
-GUI มีหน้าตั้งค่า site/วิดีโอ/เส้นนับ, progress และ cancel ผ่าน worker,
-ตาราง Parquet แบบแบ่งหน้า, PTS video overlay และ CSV
+GUI เปิด/เล่น/พัก/เลื่อนวิดีโอตาม PTS โดยไม่ต้องมี calibration และลอง local detector
+ได้ทั้งคลิปผ่าน worker พร้อม progress/cancel, กรอบ class/confidence และ CSV พิกัดภาพ
+เมื่อต้องการ trajectory/ความเร็ว/เส้นนับ ให้ใช้หน้าตั้งค่า site พร้อม calibration
+แผงตั้งค่าปรับขนาดและพับได้ ตาราง Parquet แบ่งหน้า และโปรแกรมจำขนาดหน้าต่าง
 ดู [`docs/WINDOWS_TEST.md`](docs/WINDOWS_TEST.md) สำหรับ source launchers และ portable demo build
 
 ## เอกสาร

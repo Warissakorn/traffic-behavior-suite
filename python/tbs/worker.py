@@ -19,6 +19,7 @@ def main(argv=None):
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--config")
     source.add_argument("--demo", action="store_true")
+    source.add_argument("--video-test", help="Camera-free video/model JSON snapshot")
     parser.add_argument("--output", required=True)
     parser.add_argument("--control", required=True)
     parser.add_argument("--session", required=True)
@@ -64,10 +65,13 @@ def main(argv=None):
             emit(event)
     try:
         with contextlib.redirect_stdout(sys.stderr):
-            from .pipeline import run
+            if args.video_test:
+                from .video_test import run
+            else:
+                from .pipeline import run
             if cancelled():
                 raise CancelledError("Cancelled before start")
-            path = args.config
+            path = args.video_test or args.config
             if args.demo:
                 emit({"type": "stage", "stage": "create_fixture"})
                 from .demo import fixture

@@ -19,6 +19,13 @@ one line crossing at 2.5 s. It does not measure accuracy on real traffic.
 
 ## Real video
 
+The GUI now provides a camera-free **video test** workspace: open a clip, play or
+scrub by relative decoded PTS, and run local detection across the whole clip.
+This mode records bounding boxes, classes and confidence in image pixels; it
+does not run ground-plane tracking or compute speeds/line crossings. Its manifest
+has `run_mode: video_test`, and uncomputed ground/track fields are null. See
+`docs/WINDOWS_TEST.md` for the workflow and detection CSV exports.
+
 Install `python -m pip install -e ".[detect]"` and use **local** YOLO weights (`.pt`
 or an Ultralytics-compatible exported model). The package does not download weights.
 Use the generated site YAML or `configs/foundation.site.example.yaml` as the
@@ -32,6 +39,7 @@ currently supported config example (replace all placeholder paths/calibration):
 * Camera YAML requires `projection: planar_homography` and a finite invertible
   `image_to_ground` matrix mapping **already undistorted image pixels to metres**.
   Full K/dist/R/t calibration and uncertainty estimation remain future work.
+  Calibration is required for a site analysis, not for opening video or a detection test.
 * The detector projects the bottom centre of each box. Ground-plane nearest
   association uses Hungarian assignment, class gating and constant velocity.
 * Set `options.class_ids` to the actual traffic class IDs of your model. IDs are

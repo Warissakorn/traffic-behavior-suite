@@ -29,8 +29,7 @@ def pump(app,condition,timeout=30):
 
 
 def dispose(window,app):
-    for service in [window.preview_tasks,window.result_tasks,window.export_tasks]:
-        assert service.stop()
+    assert window.stop_services()
     window.dirty=False
     window.close()
     shiboken6.delete(window)
@@ -81,3 +80,79 @@ def test_qprocess_cancel(app,tmp_path):
     assert statuses==["cancelled"]
     assert w.progress.value()==0
     dispose(w,app)
+
+
+def test_video_open_seek_and_transfer_without_calibration(app,tmp_path):
+    fixture(tmp_path)
+    w=MainWindow()
+    page=w.video_page
+    page.open_video(tmp_path/"synthetic.mkv")
+    pump(app,lambda: page.player.ready)
+    assert page.player.canvas.matrix is None
+    assert page.player.canvas.image.shape == (120,320,3)
+    page.player.slider.setValue(2500)
+    pump(app,lambda: abs(page.player.position-2.5)<.001)
+    page.player.toggle_play()
+    pump(app,lambda: page.player.position>2.5)
+    page.player.pause()
+    assert not page.player.timer.isActive()
+    page.model_path.setText(str(tmp_path/"missing.pt"))
+    page.start_test()
+    assert "ไม่พบ" in page.error_label.text()
+    page.model_path.clear()
+    page.use_site()
+    pump(app,lambda: w.setup_player.ready)
+    assert w.setup_canvas.matrix is None
+    assert w.collect()["videos"][0]["path"] == str(tmp_path/"synthetic.mkv")
+    dispose(w,app)
+
+
+def test_video_results_show_pixel_overlay(app,tmp_path,monkeypatch):
+    from tbs.video_test import run
+    from tbs.detection import SyntheticColorDetector
+    fixture(tmp_path)
+    weights=tmp_path/"test.pt"
+    weights.write_bytes(b"test-only adapter")
+    config=tmp_path/"video.json"
+    config.write_text(json.dumps(dict(video=str(tmp_path/"synthetic.mkv"),detector=str(weights))))
+    monkeypatch.setattr("tbs.video_test.make_detector",lambda config:SyntheticColorDetector())
+    out,_=run(config,tmp_path/"output")
+    w=MainWindow()
+    w.load_result(out)
+    pump(app,lambda: w.store is not None and bool(w.review_canvas.detections))
+    assert w.review_canvas.matrix is None
+    assert w.dataset.currentText()=="detections"
+    assert w.review_canvas.detections[0]["track_id"] is None
+    assert "50 detections" in w.summary.text()
+    dispose(w,app)
+
+
+def test_video_import_times_and_overlap_preflight(app,tmp_path):
+    fixture(tmp_path)
+    w=MainWindow()
+    paths=[str(tmp_path/"synthetic.mkv")]*2
+    w.add_videos(paths)
+    pump(app,lambda: w.videos.rowCount()==2)
+    from tbs.config import timestamp
+    starts=[timestamp(w.cell(w.videos,index,1)) for index in [0,1]]
+    assert starts[1]-starts[0] >= 4.9
+    # Use the fixture's calibration and synthetic model to validate the site.
+    w.camera_path.setText(str(tmp_path/"camera.yaml"))
+    w.model_path.setText("synthetic_color")
+    assert w.validate_site()
+    pump(app,lambda: w.validation_label.text().startswith("พร้อม"))
+    from PySide6.QtWidgets import QTableWidgetItem
+    w.videos.setItem(1,1,QTableWidgetItem(w.cell(w.videos,0,1)))
+    assert w.validate_site()
+    pump(app,lambda: "ซ้อน" in w.validation_label.text())
+    assert not w.job.active
+    dispose(w,app)
+
+
+@pytest.mark.parametrize("options",[dict(confidence=2),dict(confidence=float("nan")),dict(class_ids=[2,2])])
+def test_model_options_do_not_silently_clamp_invalid_files(app,options):
+    from tbs.gui.widgets import DetectorOptions
+    widget=DetectorOptions()
+    with pytest.raises(ValueError):
+        widget.set_values(options)
+    shiboken6.delete(widget)
