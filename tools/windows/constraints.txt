@@ -7,3 +7,5 @@ scipy==1.18.1
 opencv-python==5.0.0.93
 pyyaml==6.0.3
 jsonschema==4.26.0
+psutil==7.0.0
+

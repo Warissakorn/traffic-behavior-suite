@@ -46,6 +46,14 @@ GUI เปิด/เล่น/พัก/เลื่อนวิดีโอต�
 แผงตั้งค่าปรับขนาดและพับได้ ตาราง Parquet แบ่งหน้า และโปรแกรมจำขนาดหน้าต่าง
 ดู [`docs/WINDOWS_TEST.md`](docs/WINDOWS_TEST.md) สำหรับ source launchers และ portable demo build
 
+### โมเดลตรวจจับ
+
+เลือกและลงทะเบียน local weights ได้ทั้งหน้าทดสอบวิดีโอและแท็บโมเดลของจุดสำรวจ
+มีโปรไฟล์ YOLO11/YOLO26 (n/s/m), ตรวจ task + inference บนเฟรมตัวอย่าง,
+ปรับ image size/IoU และบันทึก hash/runtime/class names ใน manifest
+เปรียบเทียบความเร็วและทรัพยากรด้วย `tbs compare-models` (ยังไม่ใช่ accuracy benchmark)
+ดู [`docs/MODELS.md`](docs/MODELS.md) สำหรับขั้นตอนและข้อจำกัด
+
 ## เอกสาร
 - [`docs/SPEC.md`](docs/SPEC.md) — รายละเอียดโปรแกรม: ความต้องการ, สถาปัตยกรรม, pipeline, API
 - [`docs/DATA_SCHEMA.md`](docs/DATA_SCHEMA.md) — รูปแบบข้อมูล Parquet
@@ -67,4 +75,5 @@ benchmarks/ ground truth + metrics     docs/      เอกสาร
 
 ## License
 AGPL-3.0 — ดู [LICENSE](LICENSE)
+
 

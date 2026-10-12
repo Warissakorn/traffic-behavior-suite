@@ -156,3 +156,57 @@ def test_model_options_do_not_silently_clamp_invalid_files(app,options):
     with pytest.raises(ValueError):
         widget.set_values(options)
     shiboken6.delete(widget)
+
+
+def test_local_model_picker_registers_selects_and_checks_off_thread(app, tmp_path, monkeypatch):
+    from tbs.gui.model_selector import ModelSelector
+    from tbs.models import ModelRegistry, file_hash
+    model = tmp_path / "รถไทย.pt"
+    model.write_bytes(b"fixture")
+    widget = ModelSelector(registry=ModelRegistry(tmp_path / "models.json"))
+    monkeypatch.chdir(tmp_path)
+    widget.path.setText(model.name)
+    widget.profile.setCurrentIndex(widget.profile.findData("yolo26s"))
+    widget.register_current()
+    pump(app, lambda: not widget.busy())
+    assert widget.records[0]["preset"] == "yolo26s"
+    assert widget.path.text() == str(model)
+    assert widget.expected_sha256() == file_hash(model)
+    widget.path.clear()
+    widget.select_saved(1)
+    assert widget.path.text() == str(model)
+    assert widget.saved.currentIndex() == 1
+    assert widget.expected_sha256() == file_hash(model)
+    import threading
+    main_thread = threading.get_ident()
+    checked = []
+    def check(path, options, image, expected):
+        assert threading.get_ident() != main_thread
+        assert expected == file_hash(model)
+        return dict(model=dict(filename=model.name, format="pt", sha256=expected, class_names={"2":"car"}), detections=[])
+    monkeypatch.setattr("tbs.gui.model_selector.check_model", check)
+    widget.checked.connect(checked.append)
+    widget.check_current()
+    pump(app, lambda: not widget.busy())
+    assert len(checked) == 1 and "ผ่าน inference" in widget.info.text()
+    assert widget.stop()
+    shiboken6.delete(widget)
+
+
+def test_model_preview_does_not_draw_on_a_different_frame(app, tmp_path):
+    fixture(tmp_path)
+    window = MainWindow()
+    page = window.video_page
+    page.open_video(tmp_path / "synthetic.mkv")
+    pump(app, lambda: page.player.ready)
+    image = page.player.canvas.image.copy()
+    result = dict(detections=[dict(class_id=2, score=.9, x1=1, y1=1, x2=5, y2=5, track_id=None)], preview_rgb=image)
+    page.show_model_preview(result)
+    assert page.player.canvas.detections
+    page.player.slider.setValue(2500)
+    pump(app, lambda: abs(page.player.position-2.5) < .001)
+    assert not page.player.canvas.detections
+    page.show_model_preview(result)
+    assert not page.player.canvas.detections
+    dispose(window, app)
+

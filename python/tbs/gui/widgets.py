@@ -1,7 +1,8 @@
 """Compact, reusable controls for detector options and file selection."""
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (QWidget, QFormLayout, QDoubleSpinBox, QComboBox,
-                              QLineEdit, QHBoxLayout, QPushButton, QFileDialog)
+                              QLineEdit, QHBoxLayout, QPushButton, QFileDialog, QSpinBox)
+from ..models import detector_options
 
 
 VIDEO_FILTER = "Videos (*.mp4 *.mkv *.avi *.mov *.m4v *.webm *.ts);;All files (*)"
@@ -45,12 +46,24 @@ class DetectorOptions(QWidget):
         self.classes = QLineEdit()
         self.classes.setPlaceholderText("ทุก class หรือ 2, 3, 5, 7")
         self.classes.setToolTip("ID ตามโมเดลที่เลือก คั่นด้วยเครื่องหมายจุลภาค")
+        self.image_size = QSpinBox()
+        self.image_size.setRange(32, 4096)
+        self.image_size.setSingleStep(32)
+        self.image_size.setValue(640)
+        self.iou = QDoubleSpinBox()
+        self.iou.setRange(0, 1)
+        self.iou.setSingleStep(.05)
+        self.iou.setValue(.7)
         form.addRow("Confidence", self.confidence)
         form.addRow("Device", self.device)
         form.addRow("Class IDs", self.classes)
+        form.addRow("Image size", self.image_size)
+        form.addRow("IoU", self.iou)
         self.confidence.valueChanged.connect(self.changed)
         self.device.currentTextChanged.connect(self.changed)
         self.classes.textChanged.connect(self.changed)
+        self.image_size.valueChanged.connect(self.changed)
+        self.iou.valueChanged.connect(self.changed)
 
     def values(self):
         device = self.device.currentText().strip()
@@ -66,9 +79,11 @@ class DetectorOptions(QWidget):
             if len(ids) != len(set(ids)) or any(not 0 <= item <= 32767 for item in ids):
                 raise ValueError("Class IDs ต้องไม่ซ้ำ และอยู่ระหว่าง 0–32767")
             values["class_ids"] = ids
-        return values
+        values.update(image_size=self.image_size.value(), iou=self.iou.value())
+        return detector_options(values)
 
     def set_values(self, values):
+        values = detector_options(values)
         confidence = values.get("confidence", 0.25)
         device = values.get("device", "cpu")
         classes = values.get("class_ids", [])
@@ -78,10 +93,13 @@ class DetectorOptions(QWidget):
             raise ValueError("Device ในไฟล์ต้องเป็นข้อความ เช่น cpu หรือ 0")
         if not isinstance(classes, list) or any(type(key) is not int or not 0 <= key <= 32767 for key in classes) or len(classes) != len(set(classes)):
             raise ValueError("Class IDs ในไฟล์ต้องเป็นจำนวนเต็มที่ไม่ซ้ำ ระหว่าง 0–32767")
-        for widget in [self.confidence, self.device, self.classes]:
+        for widget in [self.confidence, self.device, self.classes, self.image_size, self.iou]:
             widget.blockSignals(True)
         self.confidence.setValue(confidence)
         self.device.setCurrentText(device)
         self.classes.setText(", ".join(map(str, classes)))
-        for widget in [self.confidence, self.device, self.classes]:
+        self.image_size.setValue(values["image_size"])
+        self.iou.setValue(values["iou"])
+        for widget in [self.confidence, self.device, self.classes, self.image_size, self.iou]:
             widget.blockSignals(False)
+

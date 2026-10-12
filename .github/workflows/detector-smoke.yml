@@ -1,0 +1,14 @@
+name: Local detector adapter
+on: [push, pull_request]
+jobs:
+  detector-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install torch==2.5.1+cpu torchvision==0.20.1+cpu --index-url https://download.pytorch.org/whl/cpu
+      - run: python -m pip install -e ".[dev,detect]"
+      - name: Test local YOLO11 and YOLO26 without downloading weights
+        run: python -m pytest tests/test_models.py -q -rs

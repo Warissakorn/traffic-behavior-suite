@@ -16,14 +16,7 @@ from .tracking import Tracker
 from .trajectory import reconstruct, crossings
 from .video import frames
 from .events import CancelledError
-
-
-def file_hash(path):
-    digest = hashlib.sha256()
-    with open(path, "rb") as handle:
-        for block in iter(lambda: handle.read(1024*1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+from .models import file_hash, describe_detector
 
 
 def run(config_path, output_dir, on_progress=None, should_cancel=None):
@@ -66,6 +59,9 @@ def run(config_path, output_dir, on_progress=None, should_cancel=None):
         event("stage", stage="load_model")
         detector = make_detector(config)
         options = config["options"]
+        report["detector_model"] = describe_detector(detector, detector_path, options,
+                                                     config["models"].get("detector_sha256"))
+        model_hashes["detector"] = report["detector_model"]["sha256"]
         tracker = Tracker(options.get("track_max_distance_m", 3), options.get("track_max_gap_s", 0.5))
         h = np.array(config["camera"]["image_to_ground"])
         with ExitStack() as stack:
@@ -85,7 +81,9 @@ def run(config_path, output_dir, on_progress=None, should_cancel=None):
                 check_cancel()
                 buffers["frames"].append(dict(frame_index=index, clip_index=clip_index, t_video=t_video, t=t))
                 projected = []
-                for cls, score, x1, y1, x2, y2 in detector.detect(image):
+                detections = detector.detect(image)
+                report["detector_model"].update(getattr(detector, "metadata", {}))
+                for cls, score, x1, y1, x2, y2 in detections:
                     point = h @ np.array([(x1+x2)/2, y2, 1.0])
                     if not np.isfinite(point).all() or abs(point[2]) < 1e-12:
                         raise ValueError("Ground projection is invalid; check camera calibration")
@@ -148,3 +146,4 @@ def run(config_path, output_dir, on_progress=None, should_cancel=None):
                       error=f"{type(exc).__name__}: {exc}", finished_at=datetime.now(timezone.utc).isoformat())
         save_report()
         raise
+
