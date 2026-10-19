@@ -2,6 +2,7 @@ name: Windows portable test
 
 on:
   push:
+    branches: [main]
     paths:
       - 'python/**'
       - 'tools/windows/**'
@@ -33,7 +34,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: windows-portable-${{ github.event.pull_request.number || github.ref }}
+  group: windows-portable-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
