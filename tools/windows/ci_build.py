@@ -6,7 +6,9 @@ import sys
 
 
 def annotation(text):
-    text = text[-12000:].replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+    # GitHub truncates annotation messages at 4096 characters. Keep the tail,
+    # where Python/PyInstaller reports the actual exception.
+    text = text[-3000:].replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
     print(f'::error title=Portable Windows build::{text}', flush=True)
 
 
@@ -22,7 +24,7 @@ def main():
     code = process.wait()
     if code:
         annotation(''.join(lines))
-        for name in ['runtime-smoke.log', 'runtime-smoke.json']:
+        for name in ['runtime-smoke.log', 'startup-smoke.log']:
             path = root/'dist/TBS'/name
             if path.is_file() and path.stat().st_size:
                 annotation(name + '\n' + path.read_text(encoding='utf-8', errors='replace')[-12000:])

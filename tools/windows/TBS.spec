@@ -1,12 +1,15 @@
 # One analysis and one dependency folder shared by GUI and console worker.
 import os
 from pathlib import Path
-from PyInstaller.utils.hooks import collect_all, copy_metadata
+from PyInstaller.utils.hooks import collect_all, copy_metadata, collect_submodules
 
 root = Path(SPECPATH).parents[1]
 profile = os.environ.get('TBS_BUILD_PROFILE', 'cpu')
 datas, binaries, hiddenimports = [], [], ['tbs.worker', 'tbs.runtime_smoke', 'tbs.gui.app',
     'tbs.video_test', 'tbs.reid.features', 'scipy.signal', 'scipy.sparse.csgraph']
+# SciPy 1.18 moved array-api compatibility modules here; several are imported
+# dynamically and are not yet covered by the PyInstaller SciPy hook.
+hiddenimports += collect_submodules('scipy._external', filter=lambda name: '.tests' not in name)
 for package in ['tbs', 'av', 'pyarrow', 'ultralytics', 'onnxruntime', 'onnx']:
     data, binary, hidden = collect_all(package)
     datas += data

@@ -85,6 +85,7 @@ jobs:
             dist/TBS/build-info.json
             dist/TBS/runtime-smoke.json
             dist/TBS/runtime-smoke.log
+            dist/TBS/startup-smoke.log
           if-no-files-found: ignore
           retention-days: 7
       - name: Explain package and hardware validation

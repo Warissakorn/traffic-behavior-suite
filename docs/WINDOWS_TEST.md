@@ -125,6 +125,7 @@ environment รุ่นเดิมใน LOCALAPPDATA สามารถคั
 * เปิด `Launch-TBS-Debug.cmd` เพื่อเห็น traceback และข้อความ dependency
 * environment และ dependencies อยู่ใน `.venv` ภายในโฟลเดอร์โปรเจกต์ (ไม่รวมใน Git)
 * log/settings อยู่ใน `%LOCALAPPDATA%/TrafficBehaviorSuite`
+* portable GUI เปิดไม่ขึ้น: ดู `logs/frozen-startup.log`; CI เก็บ `startup-smoke.log` และแสดง traceback ใน Checks
 * log งานอยู่ใน `sessions/<session>.log`; launcher log อยู่ใน `logs/startup.log`
 * ยกเลิกปกติรอเฟรม/stage ปัจจุบันคืน control; หลัง 5 วินาทีเลือก force-stop ได้
 * failed/cancelled/interrupted run เป็นผลบางส่วน ไม่เปิดเป็นผลวิเคราะห์สำเร็จ

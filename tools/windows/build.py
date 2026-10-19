@@ -50,7 +50,8 @@ def main(argv=None):
         raise RuntimeError('Portable Windows builds must run on Windows / GitHub Actions Windows runner')
     check_runtime(args.profile)
     environment = dict(os.environ, TBS_BUILD_PROFILE=args.profile, YOLO_AUTOINSTALL='false',
-                       MPLBACKEND='Agg', QT_QPA_PLATFORM='offscreen', PYTHONUTF8='1')
+                       MPLBACKEND='Agg', QT_QPA_PLATFORM='offscreen', PYTHONUTF8='1',
+                       TBS_STARTUP_LOG=str(ROOT/'dist/TBS/startup-smoke.log'))
     subprocess.run([sys.executable, '-m', 'PyInstaller', '--noconfirm', '--clean',
                     '--distpath', str(ROOT/'dist'), '--workpath', str(ROOT/'build/portable'),
                     str(ROOT/'tools/windows/TBS.spec')], check=True, cwd=ROOT, env=environment)
