@@ -7,7 +7,7 @@ root = Path(SPECPATH).parents[1]
 profile = os.environ.get('TBS_BUILD_PROFILE', 'cpu')
 datas, binaries, hiddenimports = [], [], ['tbs.worker', 'tbs.runtime_smoke', 'tbs.gui.app',
     'tbs.video_test', 'tbs.reid.features', 'scipy.signal', 'scipy.sparse.csgraph']
-for package in ['tbs', 'av', 'pyarrow', 'ultralytics', 'onnxruntime']:
+for package in ['tbs', 'av', 'pyarrow', 'ultralytics', 'onnxruntime', 'onnx']:
     data, binary, hidden = collect_all(package)
     datas += data
     binaries += binary
@@ -19,7 +19,7 @@ for package in ['tbs', 'torch', 'torchvision', 'ultralytics',
 a = Analysis([str(root/'tools/windows/portable_entry.py')], pathex=[str(root/'python')],
     binaries=binaries, datas=datas, hiddenimports=hiddenimports,
     excludes=['tkinter', 'PyQt5', 'PyQt6', 'PySide6.QtWebEngineCore',
-              'PySide6.QtWebEngineWidgets', 'PySide6.QtPdf', 'onnx', 'pytest'],
+              'PySide6.QtWebEngineWidgets', 'PySide6.QtPdf', 'pytest'],
     noarchive=False)
 pyz = PYZ(a.pure)
 gui = EXE(pyz, a.scripts, [], exclude_binaries=True, name='TBS',

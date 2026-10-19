@@ -47,6 +47,23 @@ class YoloDetector:
                                     iou=self.options["iou"], imgsz=self.options["image_size"],
                                     classes=self.options.get("class_ids"),
                                     device=self.device, half=self.options.get('half', False), verbose=False)[0]
+        backend = getattr(getattr(self.model, 'predictor', None), 'model', None)
+        runtime_device = getattr(backend, 'device', None)
+        actual = getattr(runtime_device, 'type', None)
+        session = getattr(backend, 'session', None)
+        if session is not None:
+            providers = session.get_providers()
+            self.metadata['providers'] = providers
+            actual = 'cuda' if 'CUDAExecutionProvider' in providers else 'cpu'
+        if actual in {'cpu', 'cuda'}:
+            if self.device != 'cpu' and actual == 'cpu' and self.options['device'] != 'auto':
+                raise ValueError('YOLO backend ใช้ CPU แม้เลือก GPU ไว้ ตรวจ runtime/provider หรือเลือก auto')
+            self.metadata.update(device=f"cuda:{getattr(runtime_device, 'index', 0) or 0}" if actual == 'cuda' else 'cpu',
+                                 accelerator=actual, half=bool(getattr(backend, 'fp16', False)))
+            if self.device != 'cpu' and actual == 'cpu':
+                self.metadata['fallback_reason'] = 'Inference backend selected CPU instead of CUDA'
+        if backend is not None:
+            self.metadata['inference_backend'] = getattr(backend, 'format', type(backend).__name__)
         names = result.names
         self.metadata["class_names"] = {str(key): str(value) for key, value in
                                         (names.items() if isinstance(names, dict) else enumerate(names))}

@@ -75,3 +75,26 @@ def test_real_onnx_auto_cpu_and_explicit_cuda_error(tmp_path):
         assert extractor.metadata['device'] == 'cpu'
         with pytest.raises(ValueError, match='CUDA provider'):
             Appearance(dict(reid_model=str(model), input_size=[32, 32], reid_device='0'))
+
+
+@pytest.mark.parametrize('requested', ['auto', '0'])
+def test_detector_checks_actual_onnx_provider_before_claiming_gpu(requested):
+    from tbs.detection import YoloDetector
+    detector = YoloDetector.__new__(YoloDetector)
+    detector.options = detector_options(dict(device=requested, image_size=64))
+    detector.device = '0'
+    detector.metadata = dict(device='cuda:0', accelerator='cuda')
+    backend = SimpleNamespace(device=SimpleNamespace(type='cpu', index=None), fp16=False,
+                              format='onnx', session=SimpleNamespace(get_providers=lambda: ['CPUExecutionProvider']))
+    empty = SimpleNamespace(cpu=lambda: [])
+    prediction = SimpleNamespace(names={0: 'car'}, boxes=SimpleNamespace(cls=empty, conf=empty, xyxy=empty))
+    detector.model = SimpleNamespace(predict=lambda *args, **kwargs: [prediction],
+                                     predictor=SimpleNamespace(model=backend))
+    if requested == '0':
+        with pytest.raises(ValueError, match='backend ใช้ CPU'):
+            detector.detect(np.zeros((64, 64, 3), np.uint8))
+    else:
+        assert detector.detect(np.zeros((64, 64, 3), np.uint8)) == []
+        assert detector.metadata['device'] == 'cpu'
+        assert detector.metadata['accelerator'] == 'cpu'
+        assert detector.metadata['fallback_reason']
