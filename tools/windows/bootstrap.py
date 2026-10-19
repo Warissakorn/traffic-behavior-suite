@@ -8,6 +8,7 @@ import struct
 import subprocess
 import sys
 import venv
+from runtime_profiles import runtime_install, extras
 
 ROOT = Path(__file__).resolve().parents[2]
 BASE = Path(os.environ.get("LOCALAPPDATA",Path.home()/"AppData/Local"))/"TrafficBehaviorSuite"
@@ -17,7 +18,8 @@ MARKER = ENV/"tbs-install.json"
 
 
 def fingerprint():
-    return hashlib.sha256((ROOT/"pyproject.toml").read_bytes()+(ROOT/"tools/windows/constraints.txt").read_bytes()).hexdigest()
+    return hashlib.sha256((ROOT/"pyproject.toml").read_bytes()+(ROOT/"tools/windows/constraints.txt").read_bytes()
+                          +(ROOT/'tools/windows/runtime_profiles.py').read_bytes()).hexdigest()
 
 
 def ready():
@@ -30,19 +32,25 @@ def ready():
         return False
 
 
-def setup(detection=False):
+def setup(detection=False, accelerator='cpu'):
     if sys.version_info[:2] != (3,12) or struct.calcsize("P")*8 != 64:
         raise RuntimeError("Setup needs Python 3.12 x64. Install it, then run Setup-Windows.cmd again.")
     ENV.parent.mkdir(parents=True,exist_ok=True)
     MARKER.unlink(missing_ok=True)
     if not PYTHON.is_file():
         venv.EnvBuilder(with_pip=True).create(ENV)
-    profile = "gui,detect" if detection else "gui"
+    profile = extras(accelerator) if detection else 'gui'
     subprocess.run([str(PYTHON),"-m","pip","install","--upgrade","pip"],check=True)
+    if detection:
+        subprocess.run([str(PYTHON), '-m', 'pip', 'install', *runtime_install(accelerator)], check=True)
+        conflicting = 'onnxruntime' if accelerator == 'cuda' else 'onnxruntime-gpu'
+        subprocess.run([str(PYTHON), '-m', 'pip', 'uninstall', '-y', conflicting], check=True)
     subprocess.run([str(PYTHON),"-m","pip","install","-e",f"{ROOT}[{profile}]",
                     "-c",str(ROOT/"tools/windows/constraints.txt")],check=True)
     subprocess.run([str(PYTHON),"-c","from PySide6.QtWidgets import QApplication; import av, pyarrow, cv2"],check=True)
-    MARKER.write_text(json.dumps({"source":str(ROOT),"profile":profile,"fingerprint":fingerprint()}),encoding="utf-8")
+    subprocess.run([str(PYTHON), '-m', 'pip', 'check'], check=True)
+    MARKER.write_text(json.dumps({"source":str(ROOT),"profile":profile,"accelerator":accelerator,
+                                 "fingerprint":fingerprint()}),encoding="utf-8")
     print(f"Setup OK. Environment: {ENV}")
 
 
@@ -50,11 +58,12 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("action",choices=["setup","launch","test"])
     parser.add_argument("--detection",action="store_true")
+    parser.add_argument('--accelerator', choices=['cpu', 'cuda'], default='cpu')
     parser.add_argument("--debug",action="store_true")
     args = parser.parse_args()
     try:
         if args.action=="setup":
-            setup(args.detection)
+            setup(args.detection or args.accelerator == 'cuda', args.accelerator)
             return 0
         if not ready():
             raise RuntimeError("Environment is missing/incomplete. Run Setup-Windows.cmd first.")

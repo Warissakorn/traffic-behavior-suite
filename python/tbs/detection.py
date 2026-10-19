@@ -3,6 +3,7 @@ import cv2
 import numpy as np
 from importlib.metadata import version
 from .models import local_model, detector_options
+from .accelerators import torch_device
 
 
 class SyntheticColorDetector:
@@ -26,6 +27,9 @@ class YoloDetector:
             from ultralytics import YOLO
         except ImportError as exc:
             raise ValueError("ยังไม่ได้ติดตั้งส่วนตรวจจับ: เปิด Setup-Detection-Windows.cmd หรือติดตั้ง tbs[detect]") from exc
+        self.device, hardware = torch_device(self.options['device'])
+        if self.options.get('half', False) and self.device == 'cpu':
+            raise ValueError('FP16 ต้องใช้ NVIDIA CUDA GPU; ปิด FP16 หรือเลือก GPU ที่พร้อมใช้')
         try:
             self.model = YOLO(info["path"])
         except Exception as exc:
@@ -33,6 +37,7 @@ class YoloDetector:
         if self.model.task != "detect":
             raise ValueError(f"ต้องใช้โมเดล task=detect; ไฟล์นี้เป็น {self.model.task}")
         self.metadata = dict(info, task="detect", backend="ultralytics", backend_version=version("ultralytics"))
+        self.metadata.update(hardware, half=self.options.get('half', False))
         architecture = getattr(getattr(self.model, "model", None), "yaml", {})
         if isinstance(architecture, dict) and architecture.get("yaml_file"):
             self.metadata["architecture"] = str(architecture["yaml_file"])
@@ -41,7 +46,7 @@ class YoloDetector:
         result = self.model.predict(image, conf=self.options.get("confidence", 0.25),
                                     iou=self.options["iou"], imgsz=self.options["image_size"],
                                     classes=self.options.get("class_ids"),
-                                    device=self.options.get("device", "cpu"), verbose=False)[0]
+                                    device=self.device, half=self.options.get('half', False), verbose=False)[0]
         names = result.names
         self.metadata["class_names"] = {str(key): str(value) for key, value in
                                         (names.items() if isinstance(names, dict) else enumerate(names))}

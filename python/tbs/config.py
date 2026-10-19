@@ -7,6 +7,7 @@ import numpy as np
 import yaml
 from jsonschema import Draft202012Validator, FormatChecker
 from .models import local_model, detector_options
+from .spatial import validate_regions
 
 
 def timestamp(value):
@@ -70,6 +71,8 @@ def load_site(path):
     if road.get("zones"):
         raise ValueError("OD zones are not supported by the Foundation pipeline yet")
     config["options"] = detector_options(config.get("options", {}))
+    if "image_regions" in config:
+        config["image_regions"] = validate_regions(config["image_regions"])
     return config
 
 

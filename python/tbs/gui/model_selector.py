@@ -1,7 +1,10 @@
 """Shared local-model picker; hashing and inference run off the GUI thread."""
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QComboBox, QLineEdit, QLabel, QPushButton, QSizePolicy
+from PySide6.QtWidgets import QProgressBar
+import threading
 from ..models import ModelRegistry, PRESETS, check_model
+from ..model_download import download_model
 from .preview import TaskService
 from .widgets import file_field, MODEL_FILTER
 
@@ -9,6 +12,7 @@ from .widgets import file_field, MODEL_FILTER
 class ModelSelector(QWidget):
     registered = Signal()
     checked = Signal(dict)
+    download_progress = Signal(int, int)
 
     def __init__(self, parent=None, registry=None):
         super().__init__(parent)
@@ -16,6 +20,7 @@ class ModelSelector(QWidget):
         self.options_provider = lambda: {}
         self.image_provider = lambda: None
         self.expected_hash = None
+        self.download_cancel = threading.Event()
         self.tasks = TaskService(self)
         self.tasks.result.connect(self.finished)
         self.records = []
@@ -31,12 +36,20 @@ class ModelSelector(QWidget):
         self.profile.addItem("โมเดลของฉัน / ไม่ระบุรุ่น", "custom")
         for key, preset in PRESETS.items():
             self.profile.addItem(preset["name"], key)
-        self.profile.setToolTip("ชื่อโปรไฟล์สำหรับจัดรายการ ไม่ใช่การยืนยันรุ่นหรือการดาวน์โหลด weights")
+        self.profile.setToolTip("เลือกโปรไฟล์เพื่อดาวน์โหลด weights ทางการ หรือจัดรายการไฟล์ในเครื่อง")
         box.addWidget(self.profile)
         self.register_button = QPushButton("เพิ่มในรายการ")
         self.check_button = QPushButton("ตรวจและลองโมเดล")
         box.addWidget(self.register_button)
         box.addWidget(self.check_button)
+        self.download_button = QPushButton("ดาวน์โหลด / อัปเดต YOLO")
+        self.cancel_button = QPushButton("ยกเลิกดาวน์โหลด")
+        self.cancel_button.setEnabled(False)
+        self.progress = QProgressBar()
+        self.progress.hide()
+        box.addWidget(self.download_button)
+        box.addWidget(self.cancel_button)
+        box.addWidget(self.progress)
         self.info = QLabel("เลือกไฟล์ในเครื่อง · รองรับ YOLO11 / YOLO26 และ custom detector")
         self.info.setWordWrap(True)
         self.info.setMinimumHeight(64)
@@ -47,6 +60,9 @@ class ModelSelector(QWidget):
         self.path.textChanged.connect(self.path_changed)
         self.register_button.clicked.connect(self.register_current)
         self.check_button.clicked.connect(self.check_current)
+        self.download_button.clicked.connect(self.download_current)
+        self.cancel_button.clicked.connect(self.download_cancel.set)
+        self.download_progress.connect(self.show_progress)
         self.profile.currentIndexChanged.connect(self.profile_changed)
         self.refresh()
 
@@ -79,7 +95,7 @@ class ModelSelector(QWidget):
     def profile_changed(self):
         preset = PRESETS.get(self.profile.currentData())
         if preset:
-            self.info.setText(f"{preset['name']} · เลือกไฟล์ {preset['filename']} ในเครื่อง\n"
+            self.info.setText(f"{preset['name']} · เลือกไฟล์ {preset['filename']} หรือกดดาวน์โหลด / อัปเดต\n"
                               "โปรไฟล์ COCO: รถยนต์ 2, รถจักรยานยนต์ 3, รถบัส 5, รถบรรทุก 7")
 
     def set_path(self, path, expected_hash=None):
@@ -90,9 +106,31 @@ class ModelSelector(QWidget):
         return self.tasks.task is not None or self.tasks.pending is not None
 
     def begin(self, function):
-        self.setEnabled(False)
+        self.set_controls_enabled(False)
         self.info.setText("กำลังตรวจโมเดล…")
         self.tasks.request(function)
+
+    def set_controls_enabled(self, enabled):
+        for widget in (self.saved, self.path, self.profile, self.register_button,
+                       self.check_button, self.download_button):
+            widget.setEnabled(enabled)
+
+    def show_progress(self, done, total):
+        self.progress.setRange(0, 100)
+        self.progress.setValue(int(100 * done / total) if total else 0)
+
+    def download_current(self):
+        preset = self.profile.currentData()
+        if preset not in PRESETS:
+            self.info.setText("เลือกโปรไฟล์ YOLO11 หรือ YOLO26 ก่อนดาวน์โหลด")
+            return
+        self.download_cancel.clear()
+        self.begin(lambda: download_model(preset, self.registry,
+                   progress=self.download_progress.emit, cancelled=self.download_cancel.is_set))
+        self.cancel_button.setEnabled(True)
+        self.progress.setRange(0, 0)
+        self.progress.show()
+        self.info.setText("กำลังตรวจรุ่นล่าสุดและดาวน์โหลดจาก Ultralytics · เก็บโมเดลเดิมไว้")
 
     def register_current(self):
         path, preset = self.path.text().strip(), self.profile.currentData()
@@ -114,19 +152,25 @@ class ModelSelector(QWidget):
             self.info.setText(str(exc))
 
     def finished(self, payload, error):
-        self.setEnabled(True)
+        self.set_controls_enabled(True)
+        self.cancel_button.setEnabled(False)
+        self.progress.hide()
         if error:
             self.info.setText(error)
             return
-        if payload["kind"] == "register":
+        if payload["kind"] in ("register", "download"):
             row = payload["record"]
             self.refresh()
             self.saved.setCurrentIndex(self.saved.findData(row["id"]))
-            if payload["source_path"] == self.path.text().strip():
+            if payload["kind"] == "download" or payload["source_path"] == self.path.text().strip():
                 self.path.setText(row["path"])
                 self.expected_hash = row["sha256"]
                 self.saved.setCurrentIndex(self.saved.findData(row["id"]))
             self.info.setText("เพิ่มไฟล์ในรายการแล้ว · ยังต้องตรวจ task และลอง inference")
+            if payload["kind"] == "download":
+                status = "เป็นรุ่นล่าสุดแล้ว" if payload["cached"] else "ดาวน์โหลดและตรวจ SHA-256 แล้ว"
+                self.info.setText(f"{status} · {payload['version']}\n"
+                                  "กดตรวจและลองโมเดลก่อนใช้งาน · ต้องติดตั้ง dependencies [detect]")
             self.registered.emit()
         else:
             if payload["path"] != self.path.text().strip():
@@ -154,4 +198,5 @@ class ModelSelector(QWidget):
         return self.expected_hash
 
     def stop(self):
+        self.download_cancel.set()
         return self.tasks.stop()

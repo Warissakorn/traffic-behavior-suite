@@ -8,6 +8,7 @@ from .video_player import VideoPlayer, clock
 from .widgets import DetectorOptions, file_field, VIDEO_FILTER, MODEL_FILTER
 from ..video_test import validate_config
 from .model_selector import ModelSelector
+from .spatial_editor import SpatialEditor
 
 
 class VideoTestPage(QWidget):
@@ -83,6 +84,9 @@ class VideoTestPage(QWidget):
         footer_box.addWidget(self.site_button)
         panel_box.addWidget(footer)
         self.player = VideoPlayer()
+        self.spatial_editor = SpatialEditor(self.player.canvas, allow_points=False)
+        self.spatial_editor.drawing_started.connect(self.player.pause)
+        form.addWidget(self.spatial_editor)
         self.model_selector.options_provider = self.options.values
         self.model_selector.image_provider = lambda: self.player.canvas.image
         self.model_selector.checked.connect(self.show_model_preview)
@@ -143,7 +147,7 @@ class VideoTestPage(QWidget):
                 raise ValueError("เปิดวิดีโอให้สำเร็จก่อนเริ่มทดสอบ")
             config = validate_config(dict(video=self.video_path.text(), detector=self.model_path.text(),
                                           detector_sha256=self.model_selector.expected_sha256(),
-                                          options=self.options.values()))
+                                          options=self.options.values(), image_regions=self.spatial_editor.values()))
             self.settings.setValue("test_model", config["detector"])
             self.player.pause()
             self.error_label.clear()

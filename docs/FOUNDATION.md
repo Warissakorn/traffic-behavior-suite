@@ -27,7 +27,8 @@ has `run_mode: video_test`, and uncomputed ground/track fields are null. See
 `docs/WINDOWS_TEST.md` for the workflow and detection CSV exports.
 
 Install `python -m pip install -e ".[detect]"` and use **local** YOLO weights (`.pt`
-or an Ultralytics-compatible exported model). The package does not download weights.
+or an Ultralytics-compatible exported model). The GUI can explicitly download/update
+official YOLO11/YOLO26 weights; see `docs/MODELS.md`. Inference never downloads weights implicitly.
 Use the generated site YAML or `configs/foundation.site.example.yaml` as the
 currently supported config example (replace all placeholder paths/calibration):
 
@@ -40,14 +41,38 @@ currently supported config example (replace all placeholder paths/calibration):
   `image_to_ground` matrix mapping **already undistorted image pixels to metres**.
   Full K/dist/R/t calibration and uncertainty estimation remain future work.
   Calibration is required for a site analysis, not for opening video or a detection test.
-* The detector projects the bottom centre of each box. Ground-plane nearest
-  association uses Hungarian assignment, class gating and constant velocity.
+* The detector projects the bottom centre of each box. Ground-plane association
+  uses Hungarian assignment, class gating and constant-velocity prediction fitted
+  to a bounded history of observed positions using their actual timestamps.
 * Set `options.class_ids` to the actual traffic class IDs of your model. IDs are
   preserved, not automatically mapped to the Thai vehicle taxonomy.
 * `road.count_lines` uses ground coordinates. Direction is positive when the
   trajectory crosses from the negative to positive side of oriented p1→p2.
 * Tracking tolerances are `track_max_distance_m` (default 3) and
   `track_max_gap_s` (default 0.5). Tune them against labelled footage.
+* `track_motion_window` (default 5, range 2–30 observations) controls the motion
+  fit. Several observations reduce extrapolation errors caused by detection jitter
+  before short occlusions. A smaller window reacts faster to turns/acceleration;
+  2 uses the most recent pair, as in the earlier baseline. Missing frames do not
+  become observations, and tracks expire after `track_max_gap_s` without a match.
+  Increase the gap cautiously: nearby similar vehicles can still exchange IDs.
+  Timestamps must be finite and strictly increasing, including empty frames.
+
+### ตั้งค่าการจับคู่รถภายในกล้องเดียว
+
+ใช้หน้าตั้งค่าจุดสำรวจพร้อม camera calibration แล้วใส่ในช่อง **Tracking (JSON)**:
+
+```json
+{"track_max_distance_m": 3.0, "track_max_gap_s": 0.5, "track_motion_window": 5}
+```
+
+ระบบใช้ประเภทรถและประวัติการเคลื่อนที่ช่วยรักษา ID เมื่อกรอบตรวจจับสั่นหรือรถหายไป
+ชั่วคราว ผลการวิเคราะห์จุดสำรวจมี `track_id` ให้ตรวจในวิดีโอและตารางผลลัพธ์
+หน้า **ทดสอบวิดีโอ** ยังเป็น detection ในพิกเซล ไม่ได้ทำ tracking
+การจับคู่ข้ามกล้อง/ข้ามช่วงเวลาใช้เมนู **จับคู่รถ / OD** แยกต่างหาก
+ดู [REID_OD.md](REID_OD.md) สำหรับการนำเข้าผล site และตรวจยืนยันคู่ก่อนนับ OD
+การทดสอบสังเคราะห์ไม่ยืนยันความแม่นยำกับรถจริง ต้องประเมิน IDF1/HOTA
+จากคลิปที่กำกับ ID อ้างอิงก่อนปรับใช้กับงานสำรวจจริง
 
 ## Outputs and failure handling
 
@@ -82,7 +107,8 @@ accepted by this narrower runtime. The installed validation schema is bundled at
 2. Import CVAT annotations and record predecessor-app count/tracking baselines.
 3. Add real-video detection/tracking/position/speed metrics and hold-out site splits.
 4. Add full camera calibration, RTS smoothing and lane/Frenet; initial overlay review is available in the GUI.
-5. Add project execution and cross-site identity/time contracts before Re-ID.
+5. Extend reviewed cross-site matching with trained vehicle embeddings, automatic
+   clock synchronization and labelled real-traffic precision/recall evaluation.
 
 CI exercises the synthetic regression on Windows/Linux and Python 3.10/3.12.
 The YOLO adapter still requires a smoke test with the team's actual local weights.
@@ -91,6 +117,7 @@ performance comparison are described in `docs/MODELS.md`. CI's optional detector
 job uses randomly initialized local YOLO11/YOLO26 weights for compatibility only.
 
 `tbs validate configs/project.example.yaml --kind project` validates the project,
-each referenced site, a common epoch and link references. Project execution and
-cross-site matching remain future work.
+each referenced site, a common epoch and link references. Automatic project execution
+remains future work. Cross-site matching of completed runs is available through the
+separate `tbs reid` workflow; its observations can have different epochs and clock offsets.
 

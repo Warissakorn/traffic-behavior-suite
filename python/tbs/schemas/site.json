@@ -4,6 +4,7 @@
   "required": ["schema_version", "site_id", "videos", "camera", "road", "models"],
   "additionalProperties": false,
   "properties": {
+    "image_regions": {"type": "object"},
     "schema_version": {"const": 1},
     "site_id": {"type": "string", "pattern": "^[A-Za-z0-9_-]+$"},
     "description": {"type": "string"},
@@ -32,8 +33,10 @@
         "image_size": {"type": "integer", "minimum": 32, "maximum": 4096, "multipleOf": 32},
         "class_ids": {"type": "array", "items": {"type": "integer", "minimum": 0, "maximum": 32767}, "uniqueItems": true},
         "device": {"type": "string"},
+        "half": {"type": "boolean"},
         "track_max_distance_m": {"type": "number", "exclusiveMinimum": 0},
         "track_max_gap_s": {"type": "number", "exclusiveMinimum": 0},
+        "track_motion_window": {"type": "integer", "minimum": 2, "maximum": 30},
         "resample_dt": {"type": "number", "exclusiveMinimum": 0},
         "max_interpolation_gap_s": {"type": "number", "exclusiveMinimum": 0}
       }}

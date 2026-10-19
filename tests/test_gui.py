@@ -210,3 +210,54 @@ def test_model_preview_does_not_draw_on_a_different_frame(app, tmp_path):
     assert not page.player.canvas.detections
     dispose(window, app)
 
+
+
+def test_download_model_picker_runs_in_background_and_selects_verified_file(app, tmp_path, monkeypatch):
+    from tbs.gui.model_selector import ModelSelector
+    from tbs.models import ModelRegistry
+    import threading
+    widget = ModelSelector(registry=ModelRegistry(tmp_path / 'models.json'))
+    widget.profile.setCurrentIndex(widget.profile.findData('yolo11n'))
+    thread_ids = []
+
+    def download(preset, registry, progress, cancelled):
+        thread_ids.append(threading.get_ident())
+        weights = tmp_path / 'downloaded.pt'
+        weights.write_bytes(b'verified test fixture')
+        progress(10, 10)
+        return dict(kind='download', record=registry.register(weights, preset=preset),
+                    version='test-release', cached=False)
+
+    monkeypatch.setattr('tbs.gui.model_selector.download_model', download)
+    widget.download_button.click()
+    assert not widget.download_button.isEnabled()
+    assert widget.cancel_button.isEnabled()
+    pump(app, lambda: not widget.busy())
+    assert len(thread_ids) == 1
+    assert thread_ids[0] != threading.get_ident()
+    assert widget.path.text() == str(tmp_path / 'downloaded.pt')
+    assert widget.expected_sha256() == widget.records[0]['sha256']
+    assert 'test-release' in widget.info.text()
+    assert widget.download_button.isEnabled()
+    assert not widget.cancel_button.isEnabled()
+    assert widget.stop()
+    shiboken6.delete(widget)
+
+
+def test_download_picker_reports_network_failure_and_allows_retry(app, tmp_path, monkeypatch):
+    from tbs.gui.model_selector import ModelSelector
+    from tbs.models import ModelRegistry
+    widget = ModelSelector(registry=ModelRegistry(tmp_path / 'models.json'))
+    widget.profile.setCurrentIndex(widget.profile.findData('yolo26n'))
+
+    def fail(*args, **kwargs):
+        raise OSError('network unavailable')
+
+    monkeypatch.setattr('tbs.gui.model_selector.download_model', fail)
+    widget.download_button.click()
+    pump(app, lambda: not widget.busy())
+    assert 'network unavailable' in widget.info.text()
+    assert widget.download_button.isEnabled()
+    assert widget.records == []
+    assert widget.stop()
+    shiboken6.delete(widget)

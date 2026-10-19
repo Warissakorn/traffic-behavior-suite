@@ -24,6 +24,8 @@ train = ["torch>=2.2", "torchvision>=0.17", "ultralytics==8.4.63", "onnx>=1.15"]
 detect = ["ultralytics==8.4.63"]
 reid  = ["faiss-cpu>=1.7"]
 gui   = ["PySide6>=6.6"]
+onnx-runtime = ["onnxruntime==1.22.0"]
+onnx-gpu = ["onnxruntime-gpu==1.22.0"]
 ocr   = ["easyocr>=1.7"]
 dev   = ["pytest>=7.4"]
 

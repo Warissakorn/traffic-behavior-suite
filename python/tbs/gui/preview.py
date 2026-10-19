@@ -1,7 +1,7 @@
 """Bounded background requests and an image-coordinate geometry canvas."""
 import numpy as np
 from PySide6.QtCore import QObject, QThread, Signal, Qt, QPointF
-from PySide6.QtGui import QImage, QPixmap, QPen, QColor
+from PySide6.QtGui import QImage, QPixmap, QPen, QColor, QPolygonF, QBrush
 from PySide6.QtWidgets import QGraphicsView, QGraphicsScene, QLabel, QGraphicsItem
 from ..video import VideoReader
 
@@ -77,6 +77,8 @@ def projection(matrix, point):
 
 class Canvas(QGraphicsView):
     line_changed = Signal(str, object, object)
+    roi_changed = Signal(object)
+    point_changed = Signal(str, object, object)
     problem = Signal(str)
 
     def __init__(self, parent=None):
@@ -93,6 +95,10 @@ class Canvas(QGraphicsView):
         self.first = None
         self.drag = None
         self.auto_fit = True
+        self.roi = []
+        self.point_gates = []
+        self.image_draw = None
+        self.image_first = None
         self.setBackgroundBrush(QColor("#111c2e"))
         self.placeholder = QLabel("ยังไม่มีภาพวิดีโอ\nเลือกไฟล์วิดีโอเพื่อเริ่ม", self.viewport())
         self.placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -125,6 +131,23 @@ class Canvas(QGraphicsView):
         qimage = QImage(self.image.data, width, height, self.image.strides[0], QImage.Format.Format_RGB888).copy()
         self.scene().addPixmap(QPixmap.fromImage(qimage))
         self.setSceneRect(0, 0, width, height)
+        roi_pen = QPen(QColor('#ffaf45'), 2)
+        roi_pen.setCosmetic(True)
+        if self.roi:
+            self.scene().addPolygon(QPolygonF([QPointF(*p) for p in self.roi]), roi_pen,
+                                    QBrush(QColor(255, 175, 69, 30)))
+        for gate in self.point_gates:
+            pen = QPen(QColor('#dd88ff'), 2)
+            pen.setCosmetic(True)
+            self.scene().addLine(*gate['p1'], *gate['p2'], pen)
+            label = self.scene().addText(gate['id'] + ' p1→p2')
+            label.setDefaultTextColor(pen.color())
+            label.setPos(*gate['p1'])
+            label.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations)
+        if self.image_first is not None:
+            marker = self.scene().addEllipse(-4, -4, 8, 8, roi_pen)
+            marker.setPos(*self.image_first)
+            marker.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations)
         if self.matrix is not None:
             inverse = np.linalg.inv(self.matrix)
             for line in self.lines:
@@ -167,6 +190,33 @@ class Canvas(QGraphicsView):
     def mousePressEvent(self, event):
         point = self.mapToScene(event.position().toPoint())
         pixel = np.array([point.x(), point.y()])
+        if self.image_draw and event.button() == Qt.MouseButton.LeftButton and self.image is not None:
+            if not (0 <= pixel[0] <= self.image.shape[1] and 0 <= pixel[1] <= self.image.shape[0]):
+                event.accept()
+                return
+            if self.image_first is None:
+                self.image_first = pixel.tolist()
+            else:
+                first, second = np.array(self.image_first), pixel
+                if np.linalg.norm(first-second) < 1:
+                    self.problem.emit('เลือกสองจุดที่ต่างกันอย่างน้อย 1 พิกเซล')
+                    event.accept()
+                    return
+                mode, key = self.image_draw
+                if mode == 'roi':
+                    x1, y1 = np.minimum(first, second)
+                    x2, y2 = np.maximum(first, second)
+                    if x2-x1 < 1 or y2-y1 < 1:
+                        self.problem.emit('กรอบ ROI ต้องมีความกว้างและความสูง')
+                        event.accept()
+                        return
+                    self.roi_changed.emit(np.array([[x1, y1], [x2, y1], [x2, y2], [x1, y2]]).tolist())
+                else:
+                    self.point_changed.emit(key, first.tolist(), second.tolist())
+                self.image_draw, self.image_first = None, None
+            self.redraw()
+            event.accept()
+            return
         if event.button() == Qt.MouseButton.LeftButton and self.matrix is not None and self.image is not None:
             if self.drawing:
                 if not (0 <= pixel[0] <= self.image.shape[1] and 0 <= pixel[1] <= self.image.shape[0]):
@@ -196,6 +246,14 @@ class Canvas(QGraphicsView):
                             event.accept()
                             return
         super().mousePressEvent(event)
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_Escape and self.image_draw:
+            self.image_draw = self.image_first = None
+            self.redraw()
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
     def mouseMoveEvent(self, event):
         if self.drag is not None:

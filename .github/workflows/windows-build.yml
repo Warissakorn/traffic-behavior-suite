@@ -1,47 +1,101 @@
 name: Windows portable test
+
 on:
   push:
-    branches: ['codex/foundation-single-site-pipeline']
-    paths: ['python/**', 'tools/windows/**', 'pyproject.toml', '.github/workflows/windows-build.yml', 'docs/WINDOWS_TEST.md']
+    paths:
+      - 'python/**'
+      - 'tools/windows/**'
+      - 'tests/**'
+      - 'configs/**'
+      - 'pyproject.toml'
+      - '.github/workflows/windows-build.yml'
+      - 'docs/**'
+      - '*Windows.cmd'
+  pull_request:
+    paths:
+      - 'python/**'
+      - 'tools/windows/**'
+      - 'tests/**'
+      - 'configs/**'
+      - 'pyproject.toml'
+      - '.github/workflows/windows-build.yml'
+      - 'docs/**'
+      - '*Windows.cmd'
   workflow_dispatch:
+    inputs:
+      profile:
+        description: 'Portable package to build'
+        type: choice
+        options: [both, cpu, cuda]
+        default: both
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-portable-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   portable:
-    permissions:
-      contents: write
-    runs-on: windows-latest
-    timeout-minutes: 30
+    name: Windows ${{ matrix.profile }}
+    runs-on: windows-2022
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: ${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.profile != 'both' && format('["{0}"]', inputs.profile) || '["cpu","cuda"]') }}
+    env:
+      PYTHONUTF8: '1'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+      PIP_NO_CACHE_DIR: '1'
+      YOLO_AUTOINSTALL: 'false'
+      MPLBACKEND: Agg
+      QT_QPA_PLATFORM: offscreen
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: python -m pip install -e ".[gui]" pyinstaller -c tools/windows/constraints.txt
-      - name: Test Windows source launchers
-        shell: cmd
-        run: |
-          call Setup-Windows.cmd < NUL
-          if errorlevel 1 exit /b 1
-          call Test-Windows.cmd < NUL
-          if errorlevel 1 exit /b 1
-      - run: python tools/windows/build.py
-      - uses: actions/upload-artifact@v4
-        id: portable_upload
-        continue-on-error: true
+          architecture: x64
+      - name: Install pinned CPU or NVIDIA CUDA runtime
+        run: python tools/windows/install_profile.py --profile ${{ matrix.profile }} --build
+      - name: Run source regression tests
+        run: python -m pytest -q -rs
+      - name: Build portable executables and exercise frozen inference and GUI
+        run: python tools/windows/build.py --profile ${{ matrix.profile }}
+      - name: Downloadable Windows test package
+        uses: actions/upload-artifact@v4
         with:
-          name: TBS-Windows-Test
-          path: dist/TBS-Windows-Test.zip
-          retention-days: 3
-      - name: Preserve test ZIP in a draft release if artifact storage is unavailable
-        if: steps.portable_upload.outcome == 'failure'
+          name: TBS-Windows-${{ matrix.profile }}
+          path: |
+            dist/TBS-Windows-${{ matrix.profile }}.zip
+            dist/TBS-Windows-${{ matrix.profile }}.zip.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+      - name: Preserve diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-diagnostics-${{ matrix.profile }}
+          path: |
+            build/portable/**/*.txt
+            dist/TBS/build-info.json
+            dist/TBS/runtime-smoke.json
+            dist/TBS/runtime-smoke.log
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Explain package and hardware validation
         shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
-          $tag = "tbs-windows-test-$($env:GITHUB_SHA.Substring(0,12))"
-          gh release view $tag --repo $env:GITHUB_REPOSITORY 2>$null
-          if ($LASTEXITCODE -eq 0) {
-            gh release upload $tag dist/TBS-Windows-Test.zip --clobber --repo $env:GITHUB_REPOSITORY
-          } else {
-            gh release create $tag dist/TBS-Windows-Test.zip --draft --target $env:GITHUB_SHA --title "Windows GUI Test $($env:GITHUB_SHA.Substring(0,7))" --notes-file docs/WINDOWS_TEST.md --repo $env:GITHUB_REPOSITORY
-          }
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          @'
+          ## TBS Windows portable test package
+          Download **TBS-Windows-${{ matrix.profile }}** under Artifacts on this run.
+          Extract the artifact, then extract its inner ZIP and run `TBS/TBS.exe`.
+          This build includes local YOLO inference, ROI, candidate review and OD tools.
+          Model weights are selected/downloaded in the app; no pretrained weights are bundled.
+          The runner tests frozen YOLO11/YOLO26 and ONNX Re-ID inference on CPU plus GUI/worker startup.
+          CUDA DLL/provider packaging is checked; this hosted runner has no NVIDIA GPU.
+          For NVIDIA testing, use the CUDA package with a compatible driver and run `Test-GPU.cmd`.
+          '@ >> $env:GITHUB_STEP_SUMMARY

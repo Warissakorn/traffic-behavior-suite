@@ -1,8 +1,10 @@
 """Compact, reusable controls for detector options and file selection."""
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (QWidget, QFormLayout, QDoubleSpinBox, QComboBox,
-                              QLineEdit, QHBoxLayout, QPushButton, QFileDialog, QSpinBox)
+                              QLineEdit, QHBoxLayout, QPushButton, QFileDialog, QSpinBox, QCheckBox, QLabel)
 from ..models import detector_options
+from ..accelerators import hardware_report
+from .preview import TaskService
 
 
 VIDEO_FILTER = "Videos (*.mp4 *.mkv *.avi *.mov *.m4v *.webm *.ts);;All files (*)"
@@ -41,8 +43,15 @@ class DetectorOptions(QWidget):
         self.confidence.setValue(0.25)
         self.device = QComboBox()
         self.device.setEditable(True)
-        self.device.addItems(["cpu", "0"])
-        self.device.setToolTip("cpu หรือหมายเลข GPU เช่น 0")
+        self.device.addItems(['auto', 'cpu', '0', 'cuda:0'])
+        self.device.setToolTip('auto เลือก CUDA ถ้ามี หรือใช้ CPU; 0 / cuda:0 บังคับ NVIDIA GPU')
+        self.half = QCheckBox('FP16 (เฉพาะ NVIDIA CUDA)')
+        self.gpu_button = QPushButton('ตรวจ GPU ที่พร้อมใช้')
+        self.gpu_info = QLabel('เลือก auto เพื่อตรวจและเลือกอุปกรณ์ตอนเริ่ม inference')
+        self.gpu_info.setWordWrap(True)
+        self.gpu_tasks = TaskService(self)
+        self.gpu_tasks.result.connect(self.gpu_checked)
+        self.gpu_button.clicked.connect(self.check_gpu)
         self.classes = QLineEdit()
         self.classes.setPlaceholderText("ทุก class หรือ 2, 3, 5, 7")
         self.classes.setToolTip("ID ตามโมเดลที่เลือก คั่นด้วยเครื่องหมายจุลภาค")
@@ -56,6 +65,9 @@ class DetectorOptions(QWidget):
         self.iou.setValue(.7)
         form.addRow("Confidence", self.confidence)
         form.addRow("Device", self.device)
+        form.addRow(self.half)
+        form.addRow(self.gpu_button)
+        form.addRow(self.gpu_info)
         form.addRow("Class IDs", self.classes)
         form.addRow("Image size", self.image_size)
         form.addRow("IoU", self.iou)
@@ -64,6 +76,7 @@ class DetectorOptions(QWidget):
         self.classes.textChanged.connect(self.changed)
         self.image_size.valueChanged.connect(self.changed)
         self.iou.valueChanged.connect(self.changed)
+        self.half.toggled.connect(self.changed)
 
     def values(self):
         device = self.device.currentText().strip()
@@ -79,7 +92,7 @@ class DetectorOptions(QWidget):
             if len(ids) != len(set(ids)) or any(not 0 <= item <= 32767 for item in ids):
                 raise ValueError("Class IDs ต้องไม่ซ้ำ และอยู่ระหว่าง 0–32767")
             values["class_ids"] = ids
-        values.update(image_size=self.image_size.value(), iou=self.iou.value())
+        values.update(image_size=self.image_size.value(), iou=self.iou.value(), half=self.half.isChecked())
         return detector_options(values)
 
     def set_values(self, values):
@@ -93,13 +106,31 @@ class DetectorOptions(QWidget):
             raise ValueError("Device ในไฟล์ต้องเป็นข้อความ เช่น cpu หรือ 0")
         if not isinstance(classes, list) or any(type(key) is not int or not 0 <= key <= 32767 for key in classes) or len(classes) != len(set(classes)):
             raise ValueError("Class IDs ในไฟล์ต้องเป็นจำนวนเต็มที่ไม่ซ้ำ ระหว่าง 0–32767")
-        for widget in [self.confidence, self.device, self.classes, self.image_size, self.iou]:
+        for widget in [self.confidence, self.device, self.classes, self.image_size, self.iou, self.half]:
             widget.blockSignals(True)
         self.confidence.setValue(confidence)
         self.device.setCurrentText(device)
         self.classes.setText(", ".join(map(str, classes)))
         self.image_size.setValue(values["image_size"])
         self.iou.setValue(values["iou"])
-        for widget in [self.confidence, self.device, self.classes, self.image_size, self.iou]:
+        self.half.setChecked(values['half'])
+        for widget in [self.confidence, self.device, self.classes, self.image_size, self.iou, self.half]:
             widget.blockSignals(False)
+
+    def check_gpu(self):
+        self.gpu_button.setEnabled(False)
+        self.gpu_info.setText('กำลังตรวจ driver และ runtime…')
+        self.gpu_tasks.request(hardware_report)
+
+    def gpu_checked(self, report, error):
+        self.gpu_button.setEnabled(True)
+        if error:
+            self.gpu_info.setText(error)
+        elif report['cuda_available']:
+            self.gpu_info.setText(' · '.join(f"GPU {g['index']}: {g['name']}" for g in report['gpus']))
+        else:
+            self.gpu_info.setText('CUDA ยังไม่พร้อม · ใช้ CPU ได้ · ตรวจ NVIDIA driver และแพ็กเกจ CUDA')
+
+    def stop(self):
+        return self.gpu_tasks.stop()
 

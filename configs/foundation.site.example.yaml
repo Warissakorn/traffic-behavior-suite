@@ -18,5 +18,6 @@ options:
   device: cpu
   track_max_distance_m: 3.0
   track_max_gap_s: 0.5
+  track_motion_window: 5
   resample_dt: 0.1
   max_interpolation_gap_s: 0.5

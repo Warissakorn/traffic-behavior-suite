@@ -97,6 +97,7 @@ class VideoPlayer(QWidget):
         self.canvas.detections = []
         self.canvas.lines = []
         self.canvas.matrix = None
+        self.canvas.image_draw = self.canvas.image_first = None
         self.canvas.redraw()
         self.slider.blockSignals(True)
         self.slider.setRange(0, 0)

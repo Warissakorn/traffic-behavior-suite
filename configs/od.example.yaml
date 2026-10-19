@@ -1,0 +1,28 @@
+# Completed site-analysis directories, not video-test results.
+# Paths resolve relative to this YAML. Use distinct runs, or select distinct
+# passage_point gates from the same run (see docs/REID_OD.md).
+schema_version: 1
+observations:
+  - id: camera_1_morning
+    point_id: A
+    run: ../output/site-A-run
+    clock_offset_s: 0
+  - id: camera_2_morning
+    point_id: B
+    run: ../output/site-B-run
+    clock_offset_s: 0
+  # The same physical camera may be relocated. Give the new position its own
+  # point_id, observation ID and site run with the actual clip start time.
+links:
+  - from: A
+    to: B
+    min_travel_s: 10
+    max_travel_s: 300
+options:
+  identity_mode: independent
+  min_similarity: 0.85
+  ambiguity_margin: 0.05
+  # Optional trained VEHICLE Re-ID embedding model, not YOLO detector weights.
+  # reid_model: ../models/vehicle-reid.onnx
+  # ONNX contract: float32 RGB NCHW with ImageNet mean/std, output [1, D].
+  input_size: [128, 256]
