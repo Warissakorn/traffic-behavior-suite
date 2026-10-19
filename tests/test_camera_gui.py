@@ -23,6 +23,7 @@ def app():
 
 
 def rectangle(dialog):
+    dialog.mode.setCurrentIndex(dialog.mode.findData('rectangle'))
     dialog.width.setText('30')
     dialog.length.setText('10')
     for point in [[10, 10], [310, 10], [310, 110], [10, 110]]:
@@ -31,6 +32,7 @@ def rectangle(dialog):
 
 def test_rectangle_clicks_use_original_pixels_after_zoom_and_can_move_point(app, tmp_path):
     dialog = CameraDialog(np.zeros((120, 320, 3), np.uint8))
+    dialog.mode.setCurrentIndex(dialog.mode.findData('rectangle'))
     dialog.show()
     app.processEvents()
     dialog.width.setText('30')
@@ -160,3 +162,44 @@ def test_wrong_reference_resolution_clears_previous_matrix_in_preview(app, tmp_p
     assert 'ไม่ตรง' in window.validation_label.text()
     shiboken6.delete(dialog)
     dispose(window, app)
+
+
+def test_road_mode_uses_start_end_along_the_same_edge_and_saves_axes(app, tmp_path):
+    dialog = CameraDialog(np.zeros((120, 320, 3), np.uint8))
+    assert dialog.mode.currentData() == 'road'
+    dialog.width.setText('4')
+    dialog.length.setText('20')
+    for pixel in [[20, 100], [20, 20], [100, 20], [100, 100]]:
+        dialog.add_point(pixel)
+    result = dialog.calculate()
+    assert result is not None, dialog.status.text()
+    assert result['calibration']['ground_points'] == [[0, 0], [0, 20], [4, 20], [4, 0]]
+    assert result['calibration']['axes'] == dict(x='across_road', y='along_road')
+    assert dialog.canvas.road_outline
+    np.testing.assert_allclose(project_points(camera_matrix(result), [[60, 80], [60, 40]]), [[2, 5], [2, 15]], atol=1e-10)
+    path = tmp_path/'road-camera.yaml'
+    dialog.save_to(path)
+    saved = yaml.safe_load(path.read_text())
+    assert saved['calibration']['mode'] == 'road'
+    assert saved['calibration']['length_m'] == 20
+    dialog.length.setText('40')
+    updated = dialog.calculate()
+    assert updated['calibration']['ground_points'][1] == [0, 40]
+    shiboken6.delete(dialog)
+
+
+def test_road_mode_requires_width_and_four_noncollinear_reference_points(app):
+    dialog = CameraDialog(np.zeros((120, 320, 3), np.uint8))
+    dialog.length.setText('20')
+    for pixel in [[20, 100], [20, 20]]:
+        dialog.add_point(pixel)
+    assert dialog.calculate() is None
+    dialog.add_point([100, 20])
+    dialog.add_point([100, 100])
+    assert dialog.calculate() is None  # Length alone cannot determine a 2-D camera.
+    dialog.width.setText('4')
+    assert dialog.calculate() is not None
+    assert dialog.points.rowCount() == 4
+    dialog.add_point([60, 60])
+    assert dialog.points.rowCount() == 4
+    shiboken6.delete(dialog)

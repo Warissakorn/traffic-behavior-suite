@@ -28,6 +28,7 @@ from .model_selector import ModelSelector
 from .reid_page import ReIDPage
 from .spatial_editor import SpatialEditor
 from .camera_dialog import CameraDialog
+from .wheel_guard import install_wheel_guard
 
 
 def button(text, callback):
@@ -62,6 +63,7 @@ def display_table(widget, rows):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
+        install_wheel_guard()
         self.setWindowTitle("Traffic Behavior Suite · Windows Test")
         self.resize(1280,800)
         self.setMinimumSize(840,500)

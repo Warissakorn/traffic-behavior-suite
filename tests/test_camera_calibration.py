@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 import yaml
-from tbs.camera_calibration import calibrate_camera, camera_matrix, project_points, rectangle_points
+from tbs.camera_calibration import calibrate_camera, camera_matrix, project_points, rectangle_points, road_points
 from tbs.config import load_site
 from tbs.demo import fixture
 from tbs.video import check_playlist, frames
@@ -53,6 +53,25 @@ def test_overdetermined_fit_keeps_all_points_and_reports_measurement_residual():
     assert len(result['calibration']['image_points']) == 9
     assert .01 < result['calibration']['rmse_m'] < .2
     assert result['calibration']['max_error_m'] > result['calibration']['rmse_m']
+
+
+def test_road_reference_recovers_unseen_distances_and_speed_despite_perspective():
+    from tbs.trajectory import reconstruct
+    ground_to_image = np.array([[18., 4., 100.], [0., -8., 400.], [0., .03, 1.]])
+    controls = road_points(6, 30)
+    assert controls == [[0, 0], [0, 30], [6, 30], [6, 0]]
+    pixels = project_points(ground_to_image, controls)
+    camera = calibrate_camera(pixels, controls, [320, 480])
+    # Independent points along the vehicle's path, not used to fit the camera.
+    actual = np.array([[3., 5.], [3., 15.], [3., 25.]])
+    observations = project_points(ground_to_image, actual)
+    raw_pixel_distances = np.linalg.norm(np.diff(observations, axis=0), axis=1)
+    assert raw_pixel_distances[0] > raw_pixel_distances[1] * 1.2
+    measured = project_points(camera_matrix(camera), observations)
+    np.testing.assert_allclose(measured, actual, atol=1e-10)
+    samples = np.column_stack(([0., 1., 2.], measured))
+    trajectory = next(reconstruct(samples, max_gap=1.5))
+    np.testing.assert_allclose([row['v'] for row in trajectory], 10, atol=1e-8)
 
 
 @pytest.mark.parametrize('pixels,ground,size', [
