@@ -14,6 +14,7 @@ from .pipeline import file_hash
 from .storage import Writer
 from .video import frames, probe_video
 from .models import model_path, detector_options, describe_detector
+from .spatial import Regions, validate_regions
 
 
 def validate_config(config, base=None):
@@ -30,7 +31,7 @@ def validate_config(config, base=None):
             raise ValueError(f"ไม่พบไฟล์{label}: {path}")
         resolved[key] = str(path)
     options = config.get("options", {})
-    if not isinstance(options, dict) or set(options) - {"confidence", "device", "class_ids", "image_size", "iou"}:
+    if not isinstance(options, dict) or set(options) - {"confidence", "device", "class_ids", "image_size", "iou", "half"}:
         raise ValueError("ตัวเลือกทดสอบรองรับ confidence, device, class_ids, image_size และ iou")
     expected = config.get("detector_sha256")
     model_path(resolved["detector"])
@@ -39,6 +40,10 @@ def validate_config(config, base=None):
             raise ValueError("detector_sha256 must be a lowercase SHA-256 hash")
         resolved["detector_sha256"] = expected
     resolved["options"] = detector_options(options)
+    if 'image_regions' in config:
+        resolved['image_regions'] = validate_regions(config['image_regions'])
+        if resolved['image_regions']['points']:
+            raise ValueError('Point gates require site tracking; video test supports ROI only')
     return resolved
 
 
@@ -62,6 +67,8 @@ def run(config_path, output_dir, on_progress=None, should_cancel=None):
                   videos=[dict(path=test["video"], start_time=epoch)],
                   models=dict(detector=test["detector"]), options=test["options"],
                   road=dict(count_lines=[]))
+    if 'image_regions' in test:
+        config['image_regions'] = test['image_regions']
     if "detector_sha256" in test:
         config["models"]["detector_sha256"] = test["detector_sha256"]
     config_hash = hashlib.sha256(json.dumps(config, sort_keys=True).encode()).hexdigest()
@@ -88,6 +95,7 @@ def run(config_path, output_dir, on_progress=None, should_cancel=None):
         report["model_hashes"] = dict(detector=file_hash(test["detector"]))
         check_cancel()
         detector = make_detector(config)
+        regions = Regions(config.get('image_regions'))
         report["detector_model"] = describe_detector(detector, test["detector"], test["options"],
                                                      test.get("detector_sha256"))
         report["model_hashes"]["detector"] = report["detector_model"]["sha256"]
@@ -103,7 +111,7 @@ def run(config_path, output_dir, on_progress=None, should_cancel=None):
             for index, clip_index, t_video, t, image in frames(config):
                 check_cancel()
                 buffers["frames"].append(dict(frame_index=index, clip_index=clip_index, t_video=t_video, t=t))
-                detections = detector.detect(image)
+                detections = regions.filter(detector.detect(image), image)
                 report["detector_model"].update(getattr(detector, "metadata", {}))
                 for cls, score, x1, y1, x2, y2 in detections:
                     buffers["detections"].append(dict(frame_index=index, t=t, det_id=report["detections"],

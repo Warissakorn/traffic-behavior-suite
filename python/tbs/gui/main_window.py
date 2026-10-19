@@ -24,6 +24,8 @@ from .video_test_page import VideoTestPage
 from .widgets import DetectorOptions, VIDEO_FILTER, MODEL_FILTER, file_field
 from .theme import STYLE
 from .model_selector import ModelSelector
+from .reid_page import ReIDPage
+from .spatial_editor import SpatialEditor
 
 
 def button(text, callback):
@@ -110,7 +112,7 @@ class MainWindow(QMainWindow):
         body = QHBoxLayout()
         self.nav = QListWidget()
         self.nav.setObjectName("navigation")
-        self.nav.addItems(["ทดสอบวิดีโอ", "จุดสำรวจ", "ประมวลผล", "ผลลัพธ์"])
+        self.nav.addItems(["ทดสอบวิดีโอ", "จุดสำรวจ", "ประมวลผล", "ผลลัพธ์", "จับคู่รถ / OD"])
         self.nav.setFixedWidth(126)
         self.stack = QStackedWidget()
         body.addWidget(self.nav)
@@ -119,6 +121,8 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(root)
         for page in [self.start_page(), self.setup_page(), self.run_page(), self.results_page()]:
             self.stack.addWidget(page)
+        self.reid_page = ReIDPage(self.output_path)
+        self.stack.addWidget(self.reid_page)
         self.nav.currentRowChanged.connect(self.change_workspace)
         self.start_tabs.currentChanged.connect(lambda index: self.video_page.player.pause() if index != 0 else None)
         self.result_tabs.currentChanged.connect(lambda index: self.pause_review() if index != 2 else None)
@@ -272,6 +276,13 @@ class MainWindow(QMainWindow):
         self.model_selector.options_provider = self.model_options.values
         self.model_selector.image_provider = lambda: self.setup_player.canvas.image
         self.setup_canvas = self.setup_player.canvas
+        self.spatial_editor = SpatialEditor(self.setup_canvas)
+        self.spatial_editor.changed.connect(self.changed)
+        self.spatial_editor.drawing_started.connect(self.setup_player.pause)
+        spatial_scroll = QScrollArea()
+        spatial_scroll.setWidgetResizable(True)
+        spatial_scroll.setWidget(self.spatial_editor)
+        tabs.addTab(spatial_scroll, 'พื้นที่ / จุดผ่าน')
         self.setup_canvas.line_changed.connect(self.line_changed)
         self.setup_canvas.problem.connect(self.show_error)
         self.setup_player.failed.connect(lambda text: self.validation_label.setText(text))
@@ -337,6 +348,11 @@ class MainWindow(QMainWindow):
         self.summary = QLabel("เปิดผลลัพธ์ที่ประมวลผลสำเร็จเพื่อดูข้อมูล")
         self.summary.setWordWrap(True)
         box.addWidget(self.summary)
+        self.point_filter = QComboBox()
+        self.point_filter.addItem('รถทุกคัน', None)
+        self.point_filter.currentIndexChanged.connect(self.filter_point)
+        box.addWidget(QLabel('เลือกเฉพาะรถที่ผ่านจุด'))
+        box.addWidget(self.point_filter)
         self.result_tabs = tabs = QTabWidget()
         counts = QWidget()
         counts_box = QVBoxLayout(counts)
@@ -437,6 +453,7 @@ class MainWindow(QMainWindow):
         if expected:
             self.document.config["models"]["detector_sha256"] = expected
         self.document.config["options"].update(options)
+        self.document.config['image_regions'] = self.video_page.spatial_editor.values()
         self.populate()
         self.dirty = True
         self.nav.setCurrentRow(1)
@@ -464,8 +481,9 @@ class MainWindow(QMainWindow):
                                      c.get("models",{}).get("detector_sha256"))
         options = c.get("options",{})
         self.model_options.set_values(options)
+        self.spatial_editor.set_regions(c.get('image_regions'))
         self.options.setPlainText(json.dumps({key:value for key,value in options.items()
-            if key not in {"confidence", "device", "class_ids", "image_size", "iou"}},indent=2))
+            if key not in {"confidence", "device", "class_ids", "image_size", "iou", "half"}},indent=2))
         self.videos.setRowCount(0)
         for clip in c.get("videos",[]):
             self.append_row(self.videos,[clip.get("path",""),clip.get("start_time","")])
@@ -488,9 +506,10 @@ class MainWindow(QMainWindow):
         c["options"] = json.loads(self.options.toPlainText())
         if not isinstance(c["options"], dict):
             raise ValueError("ตัวเลือกขั้นสูงต้องเป็น JSON object")
-        for key in ["confidence", "device", "class_ids", "image_size", "iou"]:
+        for key in ["confidence", "device", "class_ids", "image_size", "iou", "half"]:
             c["options"].pop(key, None)
         c["options"].update(self.model_options.values())
+        c['image_regions'] = self.spatial_editor.values()
         previous = {line["id"]:line for line in c.get("road",{}).get("count_lines",[])}
         lines = []
         for i in range(self.lines.rowCount()):
@@ -639,6 +658,7 @@ class MainWindow(QMainWindow):
             self.add_line()
         self.setup_canvas.selected = self.cell(self.lines,self.lines.currentRow(),0)
         self.setup_canvas.first = None
+        self.setup_canvas.image_draw = self.setup_canvas.image_first = None
         self.setup_canvas.drawing = True
         self.statusBar().showMessage("คลิก p1 และ p2 บนภาพ · หน่วยที่บันทึกเป็นเมตร")
 
@@ -840,6 +860,12 @@ class MainWindow(QMainWindow):
         kind,value,extra = payload
         if kind=="load":
             self.store = value
+            self.point_filter.blockSignals(True)
+            self.point_filter.clear()
+            self.point_filter.addItem('รถทุกคัน', None)
+            for gate in value.config.get('image_regions', {}).get('points', []):
+                self.point_filter.addItem(gate['id'], gate['id'])
+            self.point_filter.blockSignals(False)
             m = value.manifest
             if value.mode == "video_test":
                 self.summary.setText(f"ทดสอบ detection · {m['frames']} frames · {m['detections']} detections\nกรอบอยู่ในพิกัดภาพ · ยังไม่คำนวณ track ความเร็ว หรือเส้นนับ")
@@ -850,6 +876,9 @@ class MainWindow(QMainWindow):
             matrix = value.config.get("camera",{}).get("image_to_ground")
             self.review_canvas.matrix = np.asarray(matrix) if matrix is not None else None
             self.review_canvas.lines = value.config.get("road",{}).get("count_lines",[])
+            regions = value.config.get('image_regions', {})
+            self.review_canvas.roi = regions.get('roi', [])
+            self.review_canvas.point_gates = regions.get('points', [])
             self.review_canvas.image = None
             self.dataset.blockSignals(True)
             self.dataset.clear()
@@ -866,12 +895,23 @@ class MainWindow(QMainWindow):
             self.offset = 0
             self.result_tasks.request(lambda: ("tables",self.store.page(self.dataset.currentText(),0),self.store.counts()))
             self.request_review(reset=True)
+        elif kind == 'filter':
+            self.store = value
+            self.offset = 0
+            store, dataset = value, self.dataset.currentText()
+            self.result_tasks.request(lambda: ('tables', store.page(dataset, 0), store.counts()))
+            self.request_review()
         elif kind=="tables":
             display_table(self.results_table,value)
             if extra is not None:
                 display_table(self.counts_table,extra)
             self.page_label.setText(f"{self.offset+1 if value else 0}–{self.offset+len(value)}")
         self.statusBar().showMessage("อ่านผลลัพธ์แล้ว")
+
+    def filter_point(self):
+        if self.store:
+            store, point = self.store, self.point_filter.currentData()
+            self.result_tasks.request(lambda: ('filter', store.with_point(point), None))
 
     def reset_page(self):
         self.offset = 0
@@ -970,6 +1010,8 @@ class MainWindow(QMainWindow):
                                                    self.validation_tasks,self.import_tasks]]
         stopped += [self.video_page.player.stop(), self.setup_player.stop()]
         stopped += [self.model_selector.stop(), self.video_page.model_selector.stop()]
+        stopped += [self.reid_page.stop()]
+        stopped += [self.model_options.stop(), self.video_page.options.stop()]
         if stopped[0]:
             self.review_reader.close()
         return all(stopped)

@@ -44,17 +44,29 @@ GUI เปิด/เล่น/พัก/เลื่อนวิดีโอต�
 ได้ทั้งคลิปผ่าน worker พร้อม progress/cancel, กรอบ class/confidence และ CSV พิกัดภาพ
 เมื่อต้องการ trajectory/ความเร็ว/เส้นนับ ให้ใช้หน้าตั้งค่า site พร้อม calibration
 แผงตั้งค่าปรับขนาดและพับได้ ตาราง Parquet แบ่งหน้า และโปรแกรมจำขนาดหน้าต่าง
-ดู [`docs/WINDOWS_TEST.md`](docs/WINDOWS_TEST.md) สำหรับ source launchers และ portable demo build
+ดู [`docs/WINDOWS_TEST.md`](docs/WINDOWS_TEST.md) สำหรับ source launchers และ portable CPU/NVIDIA CUDA build
+
+### GPU และไฟล์ Windows สำหรับทดสอบ
+
+รัน `Setup-GPU-Windows.cmd` สำหรับ NVIDIA แล้วเลือก Device `auto` หรือ `0`
+ในโปรแกรม รองรับ YOLO CUDA/FP16 และ ONNX Re-ID ผ่าน ONNX Runtime GPU
+GitHub Actions **Windows portable test** สร้าง `TBS-Windows-cpu` และ `TBS-Windows-cuda`
+ให้ดาวน์โหลดจาก Artifacts ของ run ที่สำเร็จ รุ่น portable รวม runtime สำหรับวิดีโอจริงแล้ว
+weights เลือกหรือดาวน์โหลดจากโปรแกรมได้ภายหลัง
 
 ### โมเดลตรวจจับ
 
-เลือกและลงทะเบียน local weights ได้ทั้งหน้าทดสอบวิดีโอและแท็บโมเดลของจุดสำรวจ
+เลือกและลงทะเบียน local weights หรือดาวน์โหลด/อัปเดตโมเดลทางการจากโปรแกรม
+ได้ทั้งหน้าทดสอบวิดีโอและแท็บโมเดลของจุดสำรวจ
 มีโปรไฟล์ YOLO11/YOLO26 (n/s/m), ตรวจ task + inference บนเฟรมตัวอย่าง,
 ปรับ image size/IoU และบันทึก hash/runtime/class names ใน manifest
 เปรียบเทียบความเร็วและทรัพยากรด้วย `tbs compare-models` (ยังไม่ใช่ accuracy benchmark)
 ดู [`docs/MODELS.md`](docs/MODELS.md) สำหรับขั้นตอนและข้อจำกัด
 
 ## เอกสาร
+- วาดกรอบ ROI และเส้นผ่านจุด A/B ในแท็บ **พื้นที่ / จุดผ่าน** แล้วเลือกเฉพาะรถที่ผ่านจุด
+  หรือจับคู่สองจุดจาก run เดียวกันในหน้า **จับคู่รถ / OD**
+- [`docs/REID_OD.md`](docs/REID_OD.md) — จับคู่รถข้ามจุด/ข้ามเวลา ตรวจยืนยัน และส่งออกต้นทาง–ปลายทาง
 - [`docs/SPEC.md`](docs/SPEC.md) — รายละเอียดโปรแกรม: ความต้องการ, สถาปัตยกรรม, pipeline, API
 - [`docs/DATA_SCHEMA.md`](docs/DATA_SCHEMA.md) — รูปแบบข้อมูล Parquet
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — แผนงานและเกณฑ์จบแต่ละเฟส

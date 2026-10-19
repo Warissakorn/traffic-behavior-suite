@@ -17,6 +17,7 @@ from .trajectory import reconstruct, crossings
 from .video import frames
 from .events import CancelledError
 from .models import file_hash, describe_detector
+from .spatial import Regions, Passages
 
 
 def run(config_path, output_dir, on_progress=None, should_cancel=None):
@@ -62,7 +63,13 @@ def run(config_path, output_dir, on_progress=None, should_cancel=None):
         report["detector_model"] = describe_detector(detector, detector_path, options,
                                                      config["models"].get("detector_sha256"))
         model_hashes["detector"] = report["detector_model"]["sha256"]
-        tracker = Tracker(options.get("track_max_distance_m", 3), options.get("track_max_gap_s", 0.5))
+        tracker = Tracker(options.get("track_max_distance_m", 3), options.get("track_max_gap_s", 0.5),
+                          options.get("track_motion_window", 5))
+        report["tracking"] = dict(method="ground_motion_history_v1", motion_window=tracker.motion_window,
+                                  max_distance_m=tracker.max_distance, max_gap_s=tracker.max_gap)
+        regions = Regions(config.get("image_regions"))
+        passages = Passages(regions.config['points'], tracker.max_gap)
+        report['point_passages'] = 0
         h = np.array(config["camera"]["image_to_ground"])
         with ExitStack() as stack:
             db = sqlite3.connect(out/"tracks.sqlite")
@@ -70,7 +77,7 @@ def run(config_path, output_dir, on_progress=None, should_cancel=None):
             db.execute("CREATE TABLE samples (vehicle INTEGER, class INTEGER, score REAL, t REAL, x REAL, y REAL)")
             db.execute("CREATE INDEX vehicle_time ON samples(vehicle, t)")
             writers = {}
-            for name in ("frames", "detections", "trajectories", "vehicles", "line_crossings", "runs"):
+            for name in ("frames", "detections", "trajectories", "vehicles", "line_crossings", "runs", "point_passages"):
                 writers[name] = Writer(out/f"{name}.parquet", name, metadata)
                 stack.callback(writers[name].close)
             buffers = {"frames": [], "detections": []}
@@ -81,7 +88,7 @@ def run(config_path, output_dir, on_progress=None, should_cancel=None):
                 check_cancel()
                 buffers["frames"].append(dict(frame_index=index, clip_index=clip_index, t_video=t_video, t=t))
                 projected = []
-                detections = detector.detect(image)
+                detections = regions.filter(detector.detect(image), image)
                 report["detector_model"].update(getattr(detector, "metadata", {}))
                 for cls, score, x1, y1, x2, y2 in detections:
                     point = h @ np.array([(x1+x2)/2, y2, 1.0])
@@ -89,6 +96,9 @@ def run(config_path, output_dir, on_progress=None, should_cancel=None):
                         raise ValueError("Ground projection is invalid; check camera calibration")
                     projected.append(dict(class_id=cls, score=score, x1=x1, y1=y1, x2=x2, y2=y2, xy=point[:2]/point[2]))
                 ids = tracker.update(t, projected)
+                passed = passages.update(t, projected, ids, index)
+                writers['point_passages'].write(passed)
+                report['point_passages'] += len(passed)
                 for det, key in zip(projected, ids):
                     x, y = map(float, det.pop("xy"))
                     buffers["detections"].append(dict(**det, frame_index=index, t=t, det_id=report["detections"], gx=x, gy=y, ground_method=0, track_id=key))

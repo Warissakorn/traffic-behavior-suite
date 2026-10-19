@@ -7,6 +7,7 @@ from .config import load_site, load_project
 
 def model_arguments(parser):
     parser.add_argument("--device", default="cpu")
+    parser.add_argument('--half', action='store_true', help='FP16 detector inference on NVIDIA CUDA')
     parser.add_argument("--confidence", type=float, default=.25)
     parser.add_argument("--iou", type=float, default=.7)
     parser.add_argument("--image-size", type=int, default=640)
@@ -15,7 +16,7 @@ def model_arguments(parser):
 
 def model_options(args):
     from .models import detector_options
-    values = dict(device=args.device, confidence=args.confidence, iou=args.iou, image_size=args.image_size)
+    values = dict(device=args.device, confidence=args.confidence, iou=args.iou, image_size=args.image_size, half=args.half)
     if args.class_ids is not None:
         values["class_ids"] = args.class_ids
     return detector_options(values)
@@ -35,6 +36,18 @@ def main(argv=None):
     gui = sub.add_parser("gui", help="Open the desktop test application")
     gui.add_argument("--smoke", action="store_true", help="Run an offscreen GUI + worker smoke test")
     sub.add_parser("diagnostics", help="Report installed runtime modules")
+    reid = sub.add_parser("reid", help="Match tracked vehicles across observations and review observed OD")
+    reid_sub = reid.add_subparsers(dest="reid_command", required=True)
+    reid_run = reid_sub.add_parser("run", help="Propose cross-point vehicle pairs for human review")
+    reid_run.add_argument("config")
+    reid_run.add_argument("--output", required=True)
+    reid_review = reid_sub.add_parser("review", help="Save a pair identity decision")
+    reid_review.add_argument("result")
+    reid_review.add_argument("--pair", required=True)
+    reid_review.add_argument("--decision", choices=["accepted", "rejected", "pending"], required=True)
+    reid_export = reid_sub.add_parser("export", help="Export reviewed journeys and OD as CSV")
+    reid_export.add_argument("result")
+    reid_export.add_argument("--output", required=True)
     models = sub.add_parser("models", help="Catalog, register or check local detector weights")
     models.add_argument("--registry", help="Override the local model registry JSON path")
     model_sub = models.add_subparsers(dest="model_command", required=True)
@@ -69,6 +82,22 @@ def main(argv=None):
         elif args.command == "demo":
             from .demo import benchmark
             print(json.dumps(benchmark(args.output), indent=2))
+        elif args.command == "reid":
+            from .reid import workflow
+            if args.reid_command == "run":
+                directory, result = workflow.run(workflow.load_config(args.config), args.output,
+                                                on_progress=lambda message: print(message, file=sys.stderr))
+            else:
+                directory = args.result
+                result = workflow.load_result(directory)
+                if args.reid_command == "review":
+                    result = workflow.save_review(directory, result, args.pair, args.decision)
+                else:
+                    workflow.export_csv(result, args.output)
+                    directory = args.output
+            print(json.dumps(dict(output=str(directory), sightings=len(result['sightings']),
+                                  candidate_pairs=len(result['candidates']), reviewed_journeys=len(result['journeys'])),
+                             ensure_ascii=False))
         elif args.command == "gui":
             from .gui.app import main as gui_main
             return gui_main(smoke=args.smoke)

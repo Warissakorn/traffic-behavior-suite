@@ -67,6 +67,9 @@ def detector_options(options):
             len(classes) != len(set(classes))):
         raise ValueError("Class IDs ต้องเป็นจำนวนเต็มที่ไม่ซ้ำกัน ระหว่าง 0–32767")
     result.update(image_size=size, device=device.strip())
+    if type(options.get('half', False)) is not bool:
+        raise ValueError('half ต้องเป็น boolean')
+    result['half'] = options.get('half', False)
     return result
 
 

@@ -3,6 +3,7 @@ import platform
 import struct
 import sys
 from . import __version__
+from .accelerators import hardware_report
 
 
 def report():
@@ -13,4 +14,5 @@ def report():
         except importlib.metadata.PackageNotFoundError:
             versions[name] = None
     return dict(tbs=__version__, python=sys.version, executable=sys.executable,
-                os=platform.platform(), bits=struct.calcsize("P")*8, packages=versions)
+                os=platform.platform(), bits=struct.calcsize("P")*8, packages=versions,
+                accelerators=hardware_report())

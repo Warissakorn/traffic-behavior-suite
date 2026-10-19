@@ -3,6 +3,8 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 SCHEMAS = {
+    "point_passages": pa.schema([("passage_id", pa.int64()), ("vehicle_id", pa.int64()),
+        ("point_id", pa.string()), ("t", pa.float64()), ("direction", pa.int8()), ("frame_index", pa.int64())]),
     "frames": pa.schema([("frame_index", pa.int64()), ("clip_index", pa.int32()), ("t_video", pa.float64()), ("t", pa.float64())]),
     "detections": pa.schema([("frame_index", pa.int64()), ("t", pa.float64()), ("det_id", pa.int64()), ("class_id", pa.int16()), ("score", pa.float32()),
         ("x1", pa.float32()), ("y1", pa.float32()), ("x2", pa.float32()), ("y2", pa.float32()), ("gx", pa.float32()), ("gy", pa.float32()), ("ground_method", pa.int8()), ("track_id", pa.int64())]),
