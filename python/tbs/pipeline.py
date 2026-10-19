@@ -88,7 +88,8 @@ def run(config_path, output_dir, on_progress=None, should_cancel=None):
                 check_cancel()
                 buffers["frames"].append(dict(frame_index=index, clip_index=clip_index, t_video=t_video, t=t))
                 projected = []
-                detections = regions.filter(detector.detect(image), image)
+                detections = regions.detect(detector, image)
+                report['inference_region'] = regions.inference
                 report["detector_model"].update(getattr(detector, "metadata", {}))
                 for cls, score, x1, y1, x2, y2 in detections:
                     point = h @ np.array([(x1+x2)/2, y2, 1.0])

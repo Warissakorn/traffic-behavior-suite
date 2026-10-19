@@ -111,7 +111,8 @@ def run(config_path, output_dir, on_progress=None, should_cancel=None):
             for index, clip_index, t_video, t, image in frames(config):
                 check_cancel()
                 buffers["frames"].append(dict(frame_index=index, clip_index=clip_index, t_video=t_video, t=t))
-                detections = regions.filter(detector.detect(image), image)
+                detections = regions.detect(detector, image)
+                report['inference_region'] = regions.inference
                 report["detector_model"].update(getattr(detector, "metadata", {}))
                 for cls, score, x1, y1, x2, y2 in detections:
                     buffers["detections"].append(dict(frame_index=index, t=t, det_id=report["detections"],

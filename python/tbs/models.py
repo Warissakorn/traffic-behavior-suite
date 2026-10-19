@@ -143,15 +143,20 @@ def describe_detector(detector, path, options, expected_sha256=None):
     return info
 
 
-def check_model(path, options=None, image=None, expected_sha256=None):
+def check_model(path, options=None, image=None, expected_sha256=None, image_regions=None):
     """Run real adapter inference once; file registration alone is not validation."""
     import numpy as np
     from .detection import make_detector
+    from .spatial import Regions
+    regions = Regions(image_regions)
+    if image is None and regions.config.get('crop_before_detect', False):
+        raise ValueError('เปิดวิดีโอและเลือกเฟรมก่อนลองโมเดลที่ตัดภาพตาม ROI')
     options = detector_options(options or {})
     local_model(path, expected_sha256)
     detector = make_detector(dict(models=dict(detector=str(path), detector_sha256=expected_sha256), options=options))
     image = np.zeros((640, 640, 3), dtype=np.uint8) if image is None else image
-    detections = detector.detect(image)
+    detections = regions.detect(detector, image)
     info = describe_detector(detector, path, options, expected_sha256)
-    return dict(model=info, detections=[dict(class_id=cls, score=score, x1=x1, y1=y1, x2=x2, y2=y2,
+    return dict(model=info, inference_region=regions.inference,
+                detections=[dict(class_id=cls, score=score, x1=x1, y1=y1, x2=x2, y2=y2,
                                             track_id=None) for cls, score, x1, y1, x2, y2 in detections])

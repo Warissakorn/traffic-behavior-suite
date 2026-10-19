@@ -7,9 +7,14 @@ import numpy as np
 def validate_regions(regions):
     if regions is None:
         return dict(roi=[], points=[])
-    if not isinstance(regions, dict) or set(regions) - {'roi', 'points'}:
-        raise ValueError('image_regions must contain only roi and points')
+    if not isinstance(regions, dict) or set(regions) - {'roi', 'points', 'crop_before_detect'}:
+        raise ValueError('image_regions must contain only roi, points and crop_before_detect')
     roi, points = regions.get('roi', []), regions.get('points', [])
+    crop = regions.get('crop_before_detect', False)
+    if type(crop) is not bool:
+        raise ValueError('crop_before_detect must be a boolean')
+    if crop and not roi:
+        raise ValueError('crop_before_detect requires an ROI; draw the processing rectangle first')
     if not isinstance(roi, list) or (roi and len(roi) != 4):
         raise ValueError('ROI must be four rectangle corners, or an empty list')
     def point(value):
@@ -38,7 +43,10 @@ def validate_regions(regions):
             raise ValueError('Point gate requires two distinct finite pixel coordinates')
         if type(gate.get('direction', 0)) is not int or gate.get('direction', 0) not in (-1, 0, 1):
             raise ValueError('Point gate direction must be -1, 0 (both) or 1')
-    return dict(roi=roi, points=points)
+    result = dict(roi=roi, points=points)
+    if 'crop_before_detect' in regions:
+        result['crop_before_detect'] = crop
+    return result
 
 
 class Regions:
@@ -46,6 +54,7 @@ class Regions:
         self.config = validate_regions(config)
         self.roi = np.asarray(self.config['roi'], np.float32)
         self.shape = None
+        self.inference = None
 
     def check_image(self, image):
         shape = image.shape[:2]
@@ -67,6 +76,34 @@ class Regions:
     def filter(self, detections, image):
         self.check_image(image)
         return [det for det in detections if self.contains((det[2]+det[4])/2, det[5])]
+
+    def detect(self, detector, image):
+        """Infer on an optional crop, then restore full-frame coordinates."""
+        self.check_image(image)
+        height, width = image.shape[:2]
+        crop = self.config.get('crop_before_detect', False)
+        if crop:
+            # Outward rounding includes every pixel touched by fractional ROI bounds.
+            bounds = np.asarray(self.config['roi'], dtype=float)
+            x1, y1 = np.floor(bounds.min(axis=0)).astype(int)
+            x2, y2 = np.ceil(bounds.max(axis=0)).astype(int)
+            x1, y1, x2, y2 = max(0, x1), max(0, y1), min(width, x2), min(height, y2)
+            if x2 <= x1 or y2 <= y1:
+                raise ValueError('ROI crop contains no image pixels')
+            source = np.ascontiguousarray(image[y1:y2, x1:x2])
+        else:
+            x1, y1, x2, y2 = 0, 0, width, height
+            source = image
+        self.inference = dict(mode='roi_crop' if crop else 'full_frame', coordinate_space='full_frame',
+                              frame_size=[width, height], detector_input_size=[x2-x1, y2-y1],
+                              crop_box_xyxy=[int(x1), int(y1), int(x2), int(y2)])
+        # Use Python numbers so metadata and coordinates are JSON serializable.
+        self.inference['detector_input_size'] = list(map(int, self.inference['detector_input_size']))
+        detections = detector.detect(source)
+        if crop:
+            detections = [(cls, score, float(a+x1), float(b+y1), float(c+x1), float(d+y1))
+                          for cls, score, a, b, c, d in detections]
+        return self.filter(detections, image)
 
 
 class Passages:

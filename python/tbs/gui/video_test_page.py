@@ -85,10 +85,12 @@ class VideoTestPage(QWidget):
         panel_box.addWidget(footer)
         self.player = VideoPlayer()
         self.spatial_editor = SpatialEditor(self.player.canvas, allow_points=False)
+        self.spatial_editor.changed.connect(self.clear_model_preview)
         self.spatial_editor.drawing_started.connect(self.player.pause)
         form.addWidget(self.spatial_editor)
         self.model_selector.options_provider = self.options.values
         self.model_selector.image_provider = lambda: self.player.canvas.image
+        self.model_selector.regions_provider = self.spatial_editor.values
         self.model_selector.checked.connect(self.show_model_preview)
         self.options.changed.connect(self.clear_model_preview)
         self.model_path.textChanged.connect(self.clear_model_preview)

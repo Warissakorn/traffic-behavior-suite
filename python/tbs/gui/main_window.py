@@ -281,6 +281,7 @@ class MainWindow(QMainWindow):
         self.model_selector.image_provider = lambda: self.setup_player.canvas.image
         self.setup_canvas = self.setup_player.canvas
         self.spatial_editor = SpatialEditor(self.setup_canvas)
+        self.model_selector.regions_provider = self.spatial_editor.values
         self.spatial_editor.changed.connect(self.changed)
         self.spatial_editor.drawing_started.connect(self.setup_player.pause)
         spatial_scroll = QScrollArea()
