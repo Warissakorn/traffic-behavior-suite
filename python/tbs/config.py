@@ -8,6 +8,7 @@ import yaml
 from jsonschema import Draft202012Validator, FormatChecker
 from .models import local_model, detector_options
 from .spatial import validate_regions
+from .camera_calibration import calibration_image_size
 
 
 def timestamp(value):
@@ -53,6 +54,9 @@ def load_site(path):
         raise ValueError("image_to_ground must be a finite, invertible 3x3 matrix")
     config["camera"]["model_file"] = str(camera_path)
     config["camera"]["image_to_ground"] = h.tolist()
+    size = calibration_image_size(camera)
+    if size is not None:
+        config['camera']['image_size'] = size
     detector = config["models"]["detector"]
     if detector != "synthetic_color":
         model = (path.parent / detector).resolve()

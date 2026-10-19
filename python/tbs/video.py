@@ -3,6 +3,7 @@ import av
 import math
 from pathlib import Path
 from .config import timestamp
+from .camera_calibration import check_image_size
 
 
 def frame_time(frame):
@@ -144,6 +145,8 @@ def check_playlist(config):
     clips = config["videos"]
     starts = [timestamp(clip["start_time"]) for clip in clips]
     infos = [probe_video(clip["path"]) for clip in clips]
+    for info in infos:
+        check_image_size(config.get('camera', {}), [info['width'], info['height']])
     for index in range(1, len(clips)):
         last_time = infos[index - 1]["last_time_s"]
         if starts[index] <= starts[index - 1] or (last_time is not None and
@@ -163,6 +166,7 @@ def frames(config):
                 raise ValueError(f"No video stream in {clip['path']}")
             stream = container.streams.video[0]
             for frame in container.decode(stream):
+                check_image_size(config.get('camera', {}), [frame.width, frame.height])
                 if frame.pts is None or frame.time_base is None:
                     raise ValueError(f"Missing PTS in {clip['path']}")
                 pts = float(frame.pts * frame.time_base)

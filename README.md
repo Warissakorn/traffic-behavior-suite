@@ -43,6 +43,8 @@ tbs gui
 GUI เปิด/เล่น/พัก/เลื่อนวิดีโอตาม PTS โดยไม่ต้องมี calibration และลอง local detector
 ได้ทั้งคลิปผ่าน worker พร้อม progress/cancel, กรอบ class/confidence และ CSV พิกัดภาพ
 เมื่อต้องการ trajectory/ความเร็ว/เส้นนับ ให้ใช้หน้าตั้งค่า site พร้อม calibration
+สร้าง Camera YAML ได้จาก **จุดสำรวจ → กล้อง → สร้าง Camera YAML จากภาพ…** โดยคลิกจุดอ้างอิง
+แล้วกรอกพิกัดจริงเป็นเมตร หรือใช้สี่เหลี่ยมที่ทราบกว้าง–ยาว โปรแกรมคำนวณเมทริกซ์และเลือกไฟล์ให้เอง
 แผงตั้งค่าปรับขนาดและพับได้ ตาราง Parquet แบ่งหน้า และโปรแกรมจำขนาดหน้าต่าง
 ดู [`docs/WINDOWS_TEST.md`](docs/WINDOWS_TEST.md) สำหรับ source launchers และ portable CPU/NVIDIA CUDA build
 
