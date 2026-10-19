@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, Q
 from ..app_paths import data_dir
 from ..diagnostics import report as diagnostics
 from ..video import VideoReader, probe_video, check_playlist
+from ..camera_calibration import camera_matrix, check_image_size
 from .job_controller import JobController
 from .site_document import SiteDocument
 from .preview import Canvas, TaskService
@@ -26,6 +27,7 @@ from .theme import STYLE
 from .model_selector import ModelSelector
 from .reid_page import ReIDPage
 from .spatial_editor import SpatialEditor
+from .camera_dialog import CameraDialog
 
 
 def button(text, callback):
@@ -231,6 +233,8 @@ class MainWindow(QMainWindow):
         form = QFormLayout(camera)
         self.camera_path = QLineEdit()
         form.addRow("Camera YAML",self.path_widget(self.camera_path,callback=self.load_preview))
+        self.create_camera_button = button("สร้าง Camera YAML จากภาพ…", self.create_camera)
+        form.addRow(self.create_camera_button)
         hint = QLabel("ใช้ planar homography เพื่อแปลงพิกัดภาพเป็นเมตร\nภาพต้องผ่าน undistort แล้ว")
         hint.setWordWrap(True)
         hint.setObjectName("muted")
@@ -286,6 +290,7 @@ class MainWindow(QMainWindow):
         self.setup_canvas.line_changed.connect(self.line_changed)
         self.setup_canvas.problem.connect(self.show_error)
         self.setup_player.failed.connect(lambda text: self.validation_label.setText(text))
+        self.setup_player.loaded.connect(lambda _: self.apply_camera_preview())
         self.setup_controls = tabs
         self.setup_controls.setMinimumWidth(260)
         self.setup_split.addWidget(self.setup_controls)
@@ -680,6 +685,20 @@ class MainWindow(QMainWindow):
             self.changed()
             self.select_line()
 
+    def create_camera(self):
+        self.setup_player.pause()
+        suggested = (Path(self.camera_path.text()) if self.camera_path.text().strip() else
+                     (self.document.path.parent if self.document.path else Path.cwd()) / 'camera.yaml')
+        dialog = CameraDialog(image=self.setup_canvas.image, parent=self, suggested_path=suggested)
+        try:
+            if dialog.exec() and dialog.saved_path:
+                self.camera_path.setText(dialog.saved_path)
+                applied = self.apply_camera_preview()
+                if applied:
+                    self.validation_label.setText('สร้าง Camera YAML และเลือกใช้งานแล้ว · ตรวจตำแหน่งเส้นนับและระยะจริงก่อนประมวลผล')
+        finally:
+            dialog.deleteLater()
+
     def load_preview(self):
         if self.loading:
             return
@@ -688,20 +707,31 @@ class MainWindow(QMainWindow):
             self.setup_player.clear()
             return
         self.setup_player.open(path)
+        self.apply_camera_preview()
+
+    def apply_camera_preview(self):
+        self.setup_canvas.matrix = None
+        self.setup_canvas.lines = []
         if not self.camera_path.text().strip():
-            self.validation_label.setText("ดูวิดีโอได้แล้ว · เลือก Camera YAML เพื่อวาดเส้นและวิเคราะห์พิกัดพื้น")
-            return
+            self.validation_label.setText("ดูวิดีโอได้แล้ว · สร้างหรือเลือก Camera YAML เพื่อวิเคราะห์พิกัดพื้น")
+            self.setup_canvas.redraw()
+            return False
         try:
             calibration = yaml.safe_load(Path(self.camera_path.text()).read_text(encoding="utf-8"))
-            if calibration.get("projection") != "planar_homography":
-                raise ValueError("รองรับ planar_homography เท่านั้น")
-            matrix = np.asarray(calibration["image_to_ground"],dtype=float)
-            if matrix.shape!=(3,3) or not np.isfinite(matrix).all() or abs(np.linalg.det(matrix))<1e-12:
-                raise ValueError("Camera matrix ไม่ถูกต้อง")
+            matrix = camera_matrix(calibration)
+            if self.setup_canvas.image is not None:
+                check_image_size(calibration, [self.setup_canvas.image.shape[1], self.setup_canvas.image.shape[0]])
             self.setup_canvas.matrix = matrix
-            self.setup_canvas.lines = deepcopy(self.document.config.get("road",{}).get("count_lines",[]))
+            self.setup_canvas.lines = [dict(id=self.cell(self.lines, row, 0),
+                p1=[float(self.cell(self.lines, row, column)) for column in (1, 2)],
+                p2=[float(self.cell(self.lines, row, column)) for column in (3, 4)])
+                for row in range(self.lines.rowCount())]
         except Exception as exc:
             self.validation_label.setText(f"Calibration: {exc}")
+            return False
+        finally:
+            self.setup_canvas.redraw()
+        return True
 
     def preview_loaded(self,payload,error):
         if error:
