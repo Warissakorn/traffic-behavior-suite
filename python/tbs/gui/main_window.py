@@ -29,6 +29,8 @@ from .reid_page import ReIDPage
 from .spatial_editor import SpatialEditor
 from .camera_dialog import CameraDialog
 from .wheel_guard import install_wheel_guard
+from .clip_import import ClipImportDialog
+from .resume_dialog import ResumeDialog
 
 
 def button(text, callback):
@@ -224,7 +226,7 @@ class MainWindow(QMainWindow):
         self.videos.itemSelectionChanged.connect(lambda: self.load_preview() if not self.loading else None)
         vbox.addWidget(self.videos)
         row = QHBoxLayout()
-        self.add_video_button = button("เพิ่มวิดีโอ",self.add_videos)
+        self.add_video_button = button("นำเข้าชุดคลิป…",self.add_videos)
         row.addWidget(self.add_video_button)
         row.addWidget(button("ลบ",lambda: self.remove_row(self.videos)))
         row.addWidget(button("ขึ้น",lambda: self.move_video(-1)))
@@ -334,15 +336,26 @@ class MainWindow(QMainWindow):
         box.addWidget(self.progress)
         self.counters = QLabel("Frames: 0 · Detections: 0")
         box.addWidget(self.counters)
+        self.clip_progress = QLabel('คลิป: —')
+        self.clip_progress.setWordWrap(True)
+        box.addWidget(self.clip_progress)
         row = QHBoxLayout()
+        self.pause_button = button('พักงาน / บันทึกจุดทำต่อ', self.pause_job)
+        self.pause_button.setEnabled(False)
+        self.resume_button = button('งานที่พักไว้ / ทำต่อ…', self.resume_job)
         self.cancel_button = button("ยกเลิก",self.cancel_job)
         self.force_button = button("หยุดแบบบังคับ",self.force_job)
         self.cancel_button.setEnabled(False)
         self.force_button.setEnabled(False)
+        row.addWidget(self.pause_button)
+        row.addWidget(self.resume_button)
         row.addWidget(self.cancel_button)
         row.addWidget(self.force_button)
         row.addWidget(button("เปิดโฟลเดอร์ผลลัพธ์",self.open_output))
         box.addLayout(row)
+        self.clip_jobs = table(['คลิป', 'เวลาเริ่ม', 'สถานะ'])
+        self.clip_jobs.setMaximumHeight(170)
+        box.addWidget(self.clip_jobs)
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
         self.log.document().setMaximumBlockCount(2000)
@@ -495,6 +508,7 @@ class MainWindow(QMainWindow):
         self.videos.setRowCount(0)
         for clip in c.get("videos",[]):
             self.append_row(self.videos,[clip.get("path",""),clip.get("start_time","")])
+            self.videos.item(self.videos.rowCount()-1, 0).setData(Qt.ItemDataRole.UserRole, dict(clip))
         self.lines.setRowCount(0)
         for line in c.get("road",{}).get("count_lines",[]):
             self.append_row(self.lines,[line["id"],*line["p1"],*line["p2"]])
@@ -506,6 +520,12 @@ class MainWindow(QMainWindow):
         c = deepcopy(self.document.config)
         c["site_id"],c["epoch"] = self.site_id.text().strip(),self.epoch.text().strip()
         c["videos"] = [{"path":self.cell(self.videos,i,0),"start_time":self.cell(self.videos,i,1)} for i in range(self.videos.rowCount())]
+        for index, clip in enumerate(c['videos']):
+            previous = self.videos.item(index, 0).data(Qt.ItemDataRole.UserRole) or {}
+            if previous.get('start_time') == clip['start_time']:
+                clip.update({key: previous[key] for key in ('time_source', 'time_format', 'interval_s') if key in previous})
+            elif previous.get('time_source'):
+                clip['time_source'] = 'manual'
         c.setdefault("camera",{})["model_file"] = self.camera_path.text().strip()
         c.setdefault("models",{})["detector"] = self.model_path.text().strip()
         c["models"].pop("detector_sha256", None)
@@ -596,6 +616,9 @@ class MainWindow(QMainWindow):
                 self.show_error(str(exc))
 
     def add_videos(self, paths=None):
+        if paths is None or isinstance(paths, bool):
+            self.import_clip_set()
+            return
         if self.import_tasks.task is not None:
             return
         paths = paths if isinstance(paths, list) else QFileDialog.getOpenFileNames(self,"เพิ่มวิดีโอ",filter=VIDEO_FILTER)[0]
@@ -621,6 +644,35 @@ class MainWindow(QMainWindow):
             return document, rows
         self.import_tasks.request(prepare)
 
+    def import_clip_set(self):
+        if self.job.active:
+            return
+        dialog = ClipImportDialog(self.epoch.text(), self)
+        try:
+            if dialog.exec():
+                self.apply_clip_import(dialog.selected_rows, replace=dialog.replace.isChecked())
+        finally:
+            dialog.deleteLater()
+
+    def apply_clip_import(self, rows, replace=False):
+        existing = {self.cell(self.videos, index, 0) for index in range(self.videos.rowCount())} if not replace else set()
+        if any(row['path'] in existing for row in rows):
+            self.validation_label.setText('มีไฟล์อยู่ใน playlist เดิมแล้ว เลือกแทนรายการเดิมหรือเอาไฟล์ซ้ำออก')
+            return False
+        self.loading = True
+        if replace:
+            self.videos.setRowCount(0)
+        for row in rows:
+            self.append_row(self.videos, [row['path'], row['start_time']])
+            values = {key: row[key] for key in ('start_time', 'time_source', 'time_format', 'interval_s') if key in row}
+            self.videos.item(self.videos.rowCount()-1, 0).setData(Qt.ItemDataRole.UserRole, values)
+        self.loading = False
+        self.changed()
+        self.validation_label.setText(f'นำเข้า {len(rows)} คลิปตามเวลาที่ตรวจทานแล้ว · ตรวจความพร้อมก่อนรัน')
+        if rows:
+            self.videos.setCurrentCell(0, 0)
+        return True
+
     def videos_imported(self, payload, error):
         self.add_video_button.setEnabled(True)
         if error:
@@ -633,6 +685,8 @@ class MainWindow(QMainWindow):
         self.loading = True
         for row in rows:
             self.append_row(self.videos,row)
+            self.videos.item(self.videos.rowCount()-1, 0).setData(Qt.ItemDataRole.UserRole,
+                dict(start_time=row[1], time_source='legacy_contiguous'))
         self.loading = False
         self.changed()
         self.videos.setCurrentCell(first,0)
@@ -646,11 +700,15 @@ class MainWindow(QMainWindow):
         row = self.videos.currentRow()
         target = row+direction
         if 0 <= row < self.videos.rowCount() and 0 <= target < self.videos.rowCount():
+            first_data = self.videos.item(row, 0).data(Qt.ItemDataRole.UserRole)
+            second_data = self.videos.item(target, 0).data(Qt.ItemDataRole.UserRole)
             a = [self.cell(self.videos,row,j) for j in range(2)]
             b = [self.cell(self.videos,target,j) for j in range(2)]
             for j in range(2):
                 self.videos.setItem(row,j,QTableWidgetItem(b[j]))
                 self.videos.setItem(target,j,QTableWidgetItem(a[j]))
+            self.videos.item(row, 0).setData(Qt.ItemDataRole.UserRole, second_data)
+            self.videos.item(target, 0).setData(Qt.ItemDataRole.UserRole, first_data)
             self.videos.setCurrentCell(target,0)
 
     def add_line(self):
@@ -778,7 +836,11 @@ class MainWindow(QMainWindow):
             self.validation_label.setText(error)
             return
         infos, snapshot, start_run = payload
-        self.validation_label.setText(f"พร้อม · {len(infos)} คลิป · ตรวจการโหลดโมเดลเมื่อเริ่มงาน")
+        from ..playlist import timeline
+        config = yaml.safe_load(Path(snapshot).read_text(encoding='utf-8'))
+        reviewed = timeline([dict(clip, info=info) for clip, info in zip(config['videos'], infos)])
+        gaps = sum(bool(row['gap_s']) for row in reviewed)
+        self.validation_label.setText(f"พร้อม · {len(infos)} คลิป · ช่องว่าง {gaps} ช่วง · ตรวจการโหลดโมเดลเมื่อเริ่มงาน")
         if start_run and not self.job.active:
             try:
                 if self.prepare_run():
@@ -808,6 +870,10 @@ class MainWindow(QMainWindow):
         self.progress.setRange(0,0)
         self.nav.setCurrentRow(2)
         self.cancel_button.setEnabled(True)
+        self.pause_button.setEnabled(False)
+        self.resume_button.setEnabled(False)
+        self.clip_jobs.setRowCount(0)
+        self.clip_progress.setText('กำลังเตรียมรายการคลิป…')
         self.force_button.setEnabled(False)
         self.demo_button.setEnabled(False)
         self.run_button.setEnabled(False)
@@ -827,10 +893,28 @@ class MainWindow(QMainWindow):
 
     def on_event(self,event):
         stages = {"validate":"ตรวจความพร้อม","create_fixture":"สร้างตัวอย่างจำลอง","load_model":"โหลดโมเดล","decode_track":"อ่านวิดีโอ / detect / track","detect_video":"ทดสอบ detection จากวิดีโอ","reconstruct":"สร้าง trajectory / นับเส้น","finalize":"ปิดและบันทึกไฟล์"}
+        stages['fingerprint'] = 'กำลังตรวจไฟล์ต้นฉบับสำหรับทำงานต่อ'
+        if event['type'] == 'started':
+            self.pause_button.setEnabled(event.get('resumable', False))
+        if event.get('clips_total') is not None:
+            total, done = event['clips_total'], event.get('clips_done', 0)
+            self.clip_progress.setText(f'บันทึกสำเร็จ {done}/{total} คลิป · คลิปที่ยังไม่ commit จะเริ่มใหม่เมื่อทำต่อ')
+            if self.clip_jobs.rowCount() != total:
+                self.clip_jobs.setRowCount(total)
+                if self.job.output and (Path(self.job.output)/'config.resolved.json').is_file():
+                    config = json.loads((Path(self.job.output)/'config.resolved.json').read_text(encoding='utf-8'))
+                    for index, clip in enumerate(config['videos']):
+                        self.clip_jobs.setItem(index, 0, QTableWidgetItem(Path(clip['path']).name))
+                        self.clip_jobs.setItem(index, 1, QTableWidgetItem(clip['start_time']))
+            for index in range(total):
+                self.clip_jobs.setItem(index, 2, QTableWidgetItem('บันทึกแล้ว' if index < done else
+                    'กำลังทำ' if index == event.get('clip_index') else 'รอทำ'))
         if event["type"]=="stage":
             self.run_title.setText(stages.get(event.get("stage"),event.get("stage","")))
             self.progress.setRange(0,0)
         elif event["type"]=="progress":
+            if event.get('stage') == 'fingerprint':
+                self.clip_progress.setText(f"ตรวจไฟล์ {event['file_index']}/{event['file_count']}: {event['filename']}")
             if event.get("vehicles_total"):
                 self.progress.setRange(0,event["vehicles_total"])
                 self.progress.setValue(event["vehicles_done"])
@@ -839,7 +923,7 @@ class MainWindow(QMainWindow):
                 if event.get("duration_s"):
                     self.progress.setRange(0,100)
                     self.progress.setValue(min(99,int(100*event["video_time_s"]/event["duration_s"])))
-        elif event["type"] in {"warning","failed","cancelled"}:
+        elif event["type"] in {"warning","failed","cancelled","paused"}:
             self.append_log(event.get("message","")+"\n")
         elif event["type"]=="completed" and event.get("benchmark"):
             self.append_log("Synthetic benchmark PASS\n"+json.dumps(event["benchmark"]["metrics"],indent=2))
@@ -851,24 +935,57 @@ class MainWindow(QMainWindow):
         self.job.cancel()
         self.run_title.setText("กำลังรอขั้นปัจจุบันหยุด…")
         self.cancel_button.setEnabled(False)
+        self.pause_button.setEnabled(False)
         QTimer.singleShot(5000,lambda: self.force_button.setEnabled(self.job.active))
 
+    def pause_job(self):
+        self.job.pause()
+        self.pause_button.setEnabled(False)
+        self.run_title.setText('กำลังพักงาน · เก็บเฉพาะคลิปที่ commit แล้ว')
+        QTimer.singleShot(5000, lambda: self.force_button.setEnabled(self.job.active))
+
+    def resume_job(self, checked=False, path=None):
+        if self.job.active:
+            return
+        if path is None:
+            dialog = ResumeDialog(self.output_path.text(), self)
+            try:
+                if dialog.exec():
+                    path = dialog.selected_path
+            finally:
+                dialog.deleteLater()
+        if path:
+            try:
+                if self.prepare_run():
+                    self.job.start(Path(path).parent, resume=path)
+            except Exception as exc:
+                self.on_finished('failed', str(exc))
+
     def force_job(self):
-        if QMessageBox.question(self,"หยุดแบบบังคับ","ผลลัพธ์อาจไม่สมบูรณ์ ต้องการหยุด worker?",QMessageBox.StandardButton.Yes|QMessageBox.StandardButton.No)==QMessageBox.StandardButton.Yes:
+        if QMessageBox.question(self,"หยุดแบบบังคับ","คลิปที่ยังไม่ commit ต้องทำใหม่ คลิปที่บันทึกแล้วทำต่อได้ ต้องการหยุด worker?",QMessageBox.StandardButton.Yes|QMessageBox.StandardButton.No)==QMessageBox.StandardButton.Yes:
             self.job.force_stop()
 
     def on_finished(self,status,message):
         self.cancel_button.setEnabled(False)
         self.force_button.setEnabled(False)
+        self.pause_button.setEnabled(False)
+        self.resume_button.setEnabled(True)
         self.demo_button.setEnabled(True)
         self.run_button.setEnabled(True)
         self.stack.widget(1).setEnabled(True)
         self.video_page.setEnabled(True)
-        labels = {"completed":"สำเร็จ","cancelled":"ยกเลิกแล้ว","failed":"ไม่สำเร็จ"}
+        labels = {"completed":"สำเร็จ","cancelled":"ยกเลิกแล้ว","failed":"ไม่สำเร็จ", 'paused':'พักงานแล้ว · เปิดทำต่อได้'}
         self.run_title.setText(labels.get(status,status))
         self.progress.setRange(0,100)
         self.progress.setValue(100 if status=="completed" else 0)
         self.append_log(message)
+        if self.job.output and (Path(self.job.output)/'manifest.json').is_file():
+            manifest = json.loads((Path(self.job.output)/'manifest.json').read_text(encoding='utf-8'))
+            for index, clip in enumerate(manifest.get('clips', [])):
+                if index < self.clip_jobs.rowCount():
+                    self.clip_jobs.setItem(index, 2, QTableWidgetItem('บันทึกแล้ว' if clip['status'] == 'committed' else 'ยังไม่บันทึก'))
+            if manifest.get('clips'):
+                self.clip_progress.setText(f"บันทึกสำเร็จ {manifest.get('clips_done', 0)}/{len(manifest['clips'])} คลิป")
         if status=="completed" and self.job.output:
             self.load_result(self.job.output)
 

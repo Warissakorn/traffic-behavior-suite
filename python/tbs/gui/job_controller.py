@@ -28,10 +28,10 @@ class JobController(QObject):
         self.session = None
         self.protocol_error = None
 
-    def start(self, output, config=None, demo=False, video_test=None):
+    def start(self, output, config=None, demo=False, video_test=None, resume=None):
         if self.active:
             raise ValueError("มีงานกำลังประมวลผลอยู่")
-        if sum([bool(config), bool(demo), bool(video_test)]) != 1:
+        if sum([bool(config), bool(demo), bool(video_test), bool(resume)]) != 1:
             raise ValueError("เลือกงานเพียงชนิดเดียว: site, demo หรือ video test")
         self.parser = EventParser()
         self.session = str(uuid.uuid4())
@@ -43,8 +43,11 @@ class JobController(QObject):
         self.output = None
         self.protocol_error = None
         self.terminal = None
+        self.resumable = not bool(video_test)
         args = ["--output", str(Path(output).resolve()), "--control", str(self.control), "--session", self.session]
-        if demo:
+        if resume:
+            args += ['--resume', str(Path(resume).resolve())]
+        elif demo:
             args += ["--demo"]
         else:
             args += ["--video-test" if video_test else "--config", str(Path(video_test or config).resolve())]
@@ -59,6 +62,10 @@ class JobController(QObject):
     def cancel(self):
         if self.active:
             atomic_text(self.control, json.dumps({"session_id": self.session}))
+
+    def pause(self):
+        if self.active and self.resumable:
+            atomic_text(self.control, json.dumps(dict(session_id=self.session, action='pause')))
 
     def force_stop(self):
         if self.active:
@@ -83,7 +90,7 @@ class JobController(QObject):
                     raise ValueError("Worker session mismatch")
                 if event["type"] == "started":
                     self.output = event["output"]
-                if event["type"] in {"completed", "failed", "cancelled"}:
+                if event["type"] in {"completed", "failed", "cancelled", "paused"}:
                     self.terminal = event
                 self.event.emit(event)
         except (ValueError, KeyError, UnicodeError) as exc:
@@ -121,6 +128,8 @@ class JobController(QObject):
                 status = "completed"
             elif code == 3 and self.terminal and self.terminal["type"] == "cancelled":
                 status = "cancelled"
+            elif code == 4 and self.terminal and self.terminal['type'] == 'paused' and manifest and manifest.get('status') == 'paused':
+                status = 'paused'
         if manifest and manifest.get("status") == "running":
             manifest.update(status="interrupted", error=message or f"Worker exit code {code}",
                             finished_at=datetime.now(timezone.utc).isoformat())

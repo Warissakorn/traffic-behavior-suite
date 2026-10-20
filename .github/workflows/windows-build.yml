@@ -86,6 +86,7 @@ jobs:
             dist/TBS/runtime-smoke.json
             dist/TBS/runtime-smoke.log
             dist/TBS/startup-smoke.log
+            dist/TBS/checkpoint-smoke.json
           if-no-files-found: ignore
           retention-days: 7
       - name: Explain package and hardware validation
@@ -95,9 +96,10 @@ jobs:
           ## TBS Windows portable test package
           Download **TBS-Windows-${{ matrix.profile }}** under Artifacts on this run.
           Extract the artifact, then extract its inner ZIP and run `TBS/TBS.exe`.
-          This build includes local YOLO inference, ROI, candidate review and OD tools.
+          This build includes clip-set import, resumable site jobs, local YOLO inference, ROI and candidate review.
           Model weights are selected/downloaded in the app; no pretrained weights are bundled.
           The runner tests frozen YOLO11/YOLO26 and ONNX Re-ID inference on CPU plus GUI/worker startup.
+          Frozen worker pause/resume is compared with uninterrupted processing before creating the ZIP.
           CUDA DLL/provider packaging is checked; this hosted runner has no NVIDIA GPU.
           For NVIDIA testing, use the CUDA package with a compatible driver and run `Test-GPU.cmd`.
           '@ >> $env:GITHUB_STEP_SUMMARY
