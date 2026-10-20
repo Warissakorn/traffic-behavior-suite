@@ -27,7 +27,7 @@ def clips_fixture(root, lengths=(25, 25), spacing=None):
     index = 0
     for clip_index, length in enumerate(lengths):
         start = epoch+timedelta(seconds=clip_index*spacing if spacing else index/10)
-        path = root/start.strftime('กล้อง_%Y%m%d_%H%M%S')
+        path = root/('กล้อง_'+start.strftime('%Y%m%d_%H%M%S'))
         path = path.with_name(path.name+f'_{clip_index}.mkv')
         with av.open(str(path), mode='w') as container:
             stream = container.add_stream('ffv1', rate=10)

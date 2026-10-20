@@ -26,7 +26,9 @@ def files(tmp_path, names):
 
 def test_96_timestamped_files_sorted_with_exact_wall_times(tmp_path):
     start = datetime.fromisoformat(REFERENCE)
-    names = [(start+timedelta(minutes=10*i)).strftime('กล้อง_%Y%m%d_%H%M%S.mkv') for i in range(96)]
+    # Python 3.10 strftime on Windows encodes its format with the system locale.
+    # Keep the Thai filename prefix outside the date formatting operation.
+    names = ['กล้อง_'+(start+timedelta(minutes=10*i)).strftime('%Y%m%d_%H%M%S.mkv') for i in range(96)]
     paths = files(tmp_path, names)
     rows = inspect_clips(paths[::-1], REFERENCE, cache=Cache())
     assert len(rows) == 96 and all(not row['error'] for row in rows)
