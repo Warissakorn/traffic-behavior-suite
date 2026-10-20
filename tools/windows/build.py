@@ -78,6 +78,9 @@ def main(argv=None):
     if smoke['status'] != 'passed' or len(smoke['detectors']) != 2 or not smoke['reid']:
         raise RuntimeError('Packaged inference smoke did not execute required detectors and Re-ID')
     subprocess.run([str(target/'TBS.exe'), '--smoke'], check=True, timeout=150, env=environment)
+    from checkpoint_smoke import check as checkpoint_smoke
+    checkpoint_report = checkpoint_smoke(target/'TBSWorker.exe', environment)
+    (target/'checkpoint-smoke.json').write_text(json.dumps(checkpoint_report, indent=2), encoding='utf-8')
     (target/'Test-GPU.cmd').write_text(
         '@echo off\ncd /d "%~dp0"\n'
         'TBSWorker.exe --runtime-smoke --device 0 --profile cuda --onnx-model self-test\\reid-smoke.onnx > gpu-test.json 2> gpu-test.log\n'

@@ -6,7 +6,7 @@ from pathlib import Path
 import sys
 import threading
 import traceback
-from .events import CancelledError
+from .events import CancelledError, PausedError
 
 
 def main(argv=None):
@@ -20,19 +20,27 @@ def main(argv=None):
     source.add_argument("--config")
     source.add_argument("--demo", action="store_true")
     source.add_argument("--video-test", help="Camera-free video/model JSON snapshot")
+    source.add_argument('--resume', help='Resume a site run directory with a clip checkpoint')
     parser.add_argument("--output", required=True)
     parser.add_argument("--control", required=True)
     parser.add_argument("--session", required=True)
+    parser.add_argument('--pause-after-clips', type=int, help='Pause automatically after this many committed clips')
     args = parser.parse_args(argv)
+    if args.pause_after_clips is not None and args.pause_after_clips < 1:
+        parser.error('--pause-after-clips must be positive')
     control = Path(args.control)
     output = Path(args.output).resolve()
     channel = sys.stdout
     lock = threading.Lock()
     done = threading.Event()
     current = {}
+    committed_clips = 0
 
     def emit(event):
-        if event.get("type") in {"completed","failed","cancelled"}:
+        nonlocal committed_clips
+        if 'clips_done' in event:
+            committed_clips = event['clips_done']
+        if event.get("type") in {"completed","failed","cancelled","paused"}:
             done.set()
         if event.get("run_id"):
             current["run_id"] = event["run_id"]
@@ -45,11 +53,14 @@ def main(argv=None):
         while not done.wait(2):
             emit({"type": "heartbeat"})
 
-    def cancelled():
+    def requested(action):
+        if action == 'pause' and args.pause_after_clips and committed_clips >= args.pause_after_clips:
+            return True
         if not control.is_file():
             return False
         try:
-            return json.loads(control.read_text(encoding="utf-8")).get("session_id") == args.session
+            value = json.loads(control.read_text(encoding='utf-8'))
+            return value.get('session_id') == args.session and value.get('action', 'cancel') == action
         except (OSError, ValueError):
             return False
 
@@ -69,19 +80,23 @@ def main(argv=None):
                 from .video_test import run
             else:
                 from .pipeline import run
-            if cancelled():
+            if requested('cancel'):
                 raise CancelledError("Cancelled before start")
-            path = args.video_test or args.config
+            path = args.video_test or args.config or (Path(args.resume)/'source.yaml' if args.resume else None)
             if args.demo:
                 emit({"type": "stage", "stage": "create_fixture"})
                 from .demo import fixture
                 path = fixture(output/"fixtures"/args.session)
-            out, report = run(path, output, on_progress=progress, should_cancel=cancelled)
+            extra = dict(resume=args.resume, should_pause=lambda: requested('pause')) if not args.video_test else {}
+            out, report = run(path, output, on_progress=progress, should_cancel=lambda: requested('cancel'), **extra)
             if args.demo:
                 from .demo import evaluate
                 metrics = evaluate(out,report)
                 (out/"benchmark.json").write_text(json.dumps(metrics,indent=2),encoding="utf-8")
                 emit({**completed_event,"benchmark":metrics})
+    except PausedError as exc:
+        emit({'type': 'paused', 'message': str(exc)})
+        code = 4
     except CancelledError as exc:
         emit({"type": "cancelled", "message": str(exc)})
         code = 3

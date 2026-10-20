@@ -155,10 +155,11 @@ def check_playlist(config):
     return infos
 
 
-def frames(config):
+def frames(config, start_clip=0, stop_clip=None, start_index=0, previous=None):
     epoch = timestamp(config["epoch"])
-    index, previous = 0, None
-    for clip_index, clip in enumerate(config["videos"]):
+    index = start_index
+    for clip_index in range(start_clip, len(config['videos']) if stop_clip is None else stop_clip):
+        clip = config['videos'][clip_index]
         start = timestamp(clip["start_time"]) - epoch
         first_pts = None
         with av.open(clip["path"]) as container:

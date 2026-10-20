@@ -17,7 +17,7 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libegl1 libopengl0
       - run: python -m pip install -e ".[dev,gui]"
-      - run: python -m pytest -q
+      - run: python tools/ci_tests.py -q
       - run: tbs demo --output benchmark-output
       - run: tbs gui --smoke
         env:
