@@ -9,9 +9,10 @@ from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, Q
                               QTableWidgetItem, QHeaderView, QAbstractItemView,
                               QDialogButtonBox, QFileDialog, QMessageBox, QSplitter,
                               QWidget, QGraphicsItem, QScrollArea)
-from ..camera_calibration import calibrate_camera, rectangle_points
+from ..camera_calibration import calibrate_camera, rectangle_points, road_points
 from .preview import Canvas
 from .site_document import atomic_text
+from .wheel_guard import install_wheel_guard
 
 
 class CalibrationCanvas(Canvas):
@@ -21,12 +22,26 @@ class CalibrationCanvas(Canvas):
         self.control_points = []
         self.selected_point = -1
         self.capture = True
+        self.road_outline = False
         super().__init__(parent)
 
     def redraw(self):
         super().redraw()
         if self.image is None:
             return
+        if self.road_outline and len(self.control_points) == 4 and all(
+                0 <= p[0] < self.image.shape[1] and 0 <= p[1] < self.image.shape[0]
+                for p in self.control_points):
+            pen = QPen(QColor('#65b7ff'), 2)
+            pen.setCosmetic(True)
+            for first, second in ((0, 1), (1, 2), (2, 3), (3, 0)):
+                self.scene().addLine(*self.control_points[first], *self.control_points[second], pen)
+            for first, second, text in ((0, 1, 'P1→P2 ตามถนน'), (0, 3, 'P1→P4 ขวางถนน')):
+                position = (np.array(self.control_points[first]) + self.control_points[second]) / 2
+                label = self.scene().addText(text)
+                label.setDefaultTextColor(pen.color())
+                label.setPos(*position)
+                label.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations)
         for index, point in enumerate(self.control_points):
             pen = QPen(QColor('#ffca45' if index == self.selected_point else '#38dfbf'), 2)
             pen.setCosmetic(True)
@@ -51,6 +66,7 @@ class CalibrationCanvas(Canvas):
 class CameraDialog(QDialog):
     def __init__(self, image=None, parent=None, suggested_path=None):
         super().__init__(parent)
+        install_wheel_guard()
         self.setWindowTitle('สร้าง Camera YAML จากภาพ')
         self.resize(1120, 740)
         self.saved_path = None
@@ -89,8 +105,10 @@ class CameraDialog(QDialog):
         self.mode = QComboBox()
         self.mode.addItem('สี่เหลี่ยมที่ทราบกว้าง × ยาว (4 จุด)', 'rectangle')
         self.mode.addItem('พิกัดพื้นอิสระ (4 จุดขึ้นไป)', 'control')
+        self.mode.addItem('ระยะตามแนวถนน: ต้นช่วง → ปลายช่วง (4 จุด)', 'road')
         form.addWidget(self.mode)
         dimensions = QFormLayout()
+        self.dimension_form = dimensions
         self.width, self.length = QLineEdit(), QLineEdit()
         self.width.setPlaceholderText('ระยะ P1 → P2 ที่วัดจริง')
         self.length.setPlaceholderText('ระยะ P2 → P3 ที่วัดจริง')
@@ -149,6 +167,7 @@ class CameraDialog(QDialog):
         self.mode.currentIndexChanged.connect(self.mode_changed)
         self.width.textChanged.connect(self.dimensions_changed)
         self.length.textChanged.connect(self.dimensions_changed)
+        self.mode.setCurrentIndex(self.mode.findData('road'))
         self.mode_changed()
         if image is not None:
             self.set_reference_image(image)
@@ -180,26 +199,42 @@ class CameraDialog(QDialog):
             self.repick_row = None
 
     def mode_changed(self):
-        rectangle = self.mode.currentData() == 'rectangle'
-        self.width.setEnabled(rectangle)
-        self.length.setEnabled(rectangle)
-        self.hint.setText('คลิกมุมของสี่เหลี่ยมจริงเรียงรอบขอบ P1 → P2 → P3 → P4\n'
+        mode = self.mode.currentData()
+        structured = mode in {'rectangle', 'road'}
+        self.width.setEnabled(structured)
+        self.length.setEnabled(structured)
+        self.canvas.road_outline = mode == 'road'
+        self.dimension_form.labelForField(self.width).setText('กว้างขวางถนน P1→P4 (ม.)' if mode == 'road' else 'กว้าง X (เมตร)')
+        self.dimension_form.labelForField(self.length).setText('ระยะตามถนน P1→P2 (ม.)' if mode == 'road' else 'ยาว Y (เมตร)')
+        self.width.setPlaceholderText('ระยะตั้งฉากขวางถนนที่วัดจริง' if mode == 'road' else 'ระยะ P1 → P2 ที่วัดจริง')
+        self.length.setPlaceholderText('ระยะต้นช่วงถึงปลายช่วงตามถนนที่วัดจริง' if mode == 'road' else 'ระยะ P2 → P3 ที่วัดจริง')
+        self.points.setHorizontalHeaderLabels(['จุด', 'ภาพ u (px)', 'ภาพ v (px)',
+            'ขวาง X (ม.)' if mode == 'road' else 'พื้น X (ม.)', 'ตามถนน Y (ม.)' if mode == 'road' else 'พื้น Y (ม.)'])
+        if mode == 'road':
+            self.hint.setText('ถนนตรงและพื้นระนาบเดียว: คลิก P1 ต้นช่วง → P2 ปลายช่วง บนขอบเดียวกัน '
+                              'แล้ว P3 ปลายช่วง → P4 ต้นช่วง บนอีกขอบหนึ่ง\n'
+                              'P1→P2 คือระยะตามรถวิ่ง · P1→P4 คือความกว้างตั้งฉากขวางถนน\n'
+                              'ใช้ระยะจริงที่วัดบนพื้นถนน ไม่ใช้ระยะ 2 จุดเป็นสเกลพิกเซลคงที่ทั้งภาพ')
+        else:
+            self.hint.setText('คลิกมุมของสี่เหลี่ยมจริงเรียงรอบขอบ P1 → P2 → P3 → P4\n'
                           'P1=(0,0), P2=(กว้าง,0), P3=(กว้าง,ยาว), P4=(0,ยาว)'
-                          if rectangle else 'คลิกจุดบนภาพ แล้วกรอกพิกัด X,Y จริงเป็นเมตรทุกแถว '
+                          if mode == 'rectangle' else 'คลิกจุดบนภาพ แล้วกรอกพิกัด X,Y จริงเป็นเมตรทุกแถว '
                           'เลือกจุดกำเนิดและทิศแกนร่วมกัน จุดต้องไม่เรียงเป็นเส้นตรง')
         self.dimensions_changed()
 
     def dimensions_changed(self):
-        rectangle = self.mode.currentData() == 'rectangle'
+        mode = self.mode.currentData()
+        structured = mode in {'rectangle', 'road'}
         try:
-            coordinates = rectangle_points(self.width.text(), self.length.text()) if rectangle else []
+            generator = road_points if mode == 'road' else rectangle_points
+            coordinates = generator(self.width.text(), self.length.text()) if structured else []
         except ValueError:
             coordinates = []
         self.points.blockSignals(True)
         for row in range(self.points.rowCount()):
             for column in (3, 4):
                 item = self.points.item(row, column)
-                if rectangle:
+                if structured:
                     item.setText(f'{coordinates[row][column-3]:.10g}' if row < len(coordinates) else '')
                     item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
                 else:
@@ -217,8 +252,8 @@ class CameraDialog(QDialog):
             self.points.blockSignals(False)
             self.changed()
             return
-        if self.mode.currentData() == 'rectangle' and self.points.rowCount() >= 4:
-            self.status.setText('สี่เหลี่ยมใช้ 4 จุด เลือกแถวแล้วกด “ย้ายจุดที่เลือก” เพื่อแก้ หรือใช้พิกัดพื้นอิสระ')
+        if self.mode.currentData() in {'rectangle', 'road'} and self.points.rowCount() >= 4:
+            self.status.setText('โหมดนี้ใช้ 4 จุด เลือกแถวแล้วกด “ย้ายจุดที่เลือก” เพื่อแก้ หรือใช้พิกัดพื้นอิสระ')
             return
         row = self.points.rowCount()
         self.points.blockSignals(True)
@@ -275,13 +310,15 @@ class CameraDialog(QDialog):
     def calibration(self):
         if self.canvas.image is None:
             raise ValueError('เปิดภาพอ้างอิง หรือเปิดวิดีโอในหน้าจุดสำรวจก่อน')
-        rectangle = self.mode.currentData() == 'rectangle'
-        if rectangle and self.points.rowCount() != 4:
-            raise ValueError('โหมดสี่เหลี่ยมต้องเลือกมุมเรียงรอบขอบให้ครบ 4 จุด')
+        mode = self.mode.currentData()
+        structured = mode in {'rectangle', 'road'}
+        if structured and self.points.rowCount() != 4:
+            raise ValueError('โหมดตามแนวถนน / สี่เหลี่ยมต้องเลือกมุมเรียงรอบขอบให้ครบ 4 จุด')
         try:
             pixels = [[float(self.points.item(row, column).text()) for column in (1, 2)]
                       for row in range(self.points.rowCount())]
-            ground = (rectangle_points(self.width.text(), self.length.text()) if rectangle else
+            generator = road_points if mode == 'road' else rectangle_points
+            ground = (generator(self.width.text(), self.length.text()) if structured else
                       [[float(self.points.item(row, column).text()) for column in (3, 4)]
                        for row in range(self.points.rowCount())])
         except (ValueError, AttributeError) as exc:
@@ -289,8 +326,10 @@ class CameraDialog(QDialog):
         height, width = self.canvas.image.shape[:2]
         result = calibrate_camera(pixels, ground, [width, height])
         result['calibration']['mode'] = self.mode.currentData()
-        if rectangle:
+        if structured:
             result['calibration'].update(width_m=float(self.width.text()), length_m=float(self.length.text()))
+        if mode == 'road':
+            result['calibration']['axes'] = dict(x='across_road', y='along_road')
         return result
 
     def calculate(self):

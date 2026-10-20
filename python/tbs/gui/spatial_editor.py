@@ -2,7 +2,7 @@
 from copy import deepcopy
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
-                              QPushButton, QComboBox)
+                              QPushButton, QComboBox, QCheckBox)
 from ..spatial import validate_regions
 
 
@@ -27,6 +27,15 @@ class SpatialEditor(QWidget):
         hint = QLabel('กรอบ ROI: คลิกมุมตรงข้าม 2 จุด · เก็บรถเมื่อจุดกึ่งกลางล่างของกรอบรถอยู่ใน ROI · Esc ยกเลิก')
         hint.setWordWrap(True)
         box.addWidget(hint)
+        self.crop_before_detect = QCheckBox('ตัดภาพตาม ROI ก่อนส่งเข้า YOLO')
+        self.crop_before_detect.setEnabled(False)
+        self.crop_before_detect.setToolTip('วาด ROI ก่อนเปิดใช้ · แสดงผลบนภาพเต็ม · ควรเผื่อขอบให้เห็นรถเต็มคัน')
+        self.crop_before_detect.toggled.connect(self.change_crop)
+        box.addWidget(self.crop_before_detect)
+        crop_hint = QLabel('เปิด: ตรวจเฉพาะภาพในกรอบ · ปิด: ตรวจทั้งภาพแล้วคัดรถใน ROI\n'
+                          'ผลลัพธ์ยังแสดงภาพเต็มทั้งสองแบบ · ความเร็วขึ้นกับ Image size ของโมเดลด้วย')
+        crop_hint.setWordWrap(True)
+        box.addWidget(crop_hint)
         self.point_name = QLineEdit()
         self.point_name.setPlaceholderText('ชื่อจุด เช่น A หรือ B')
         self.direction = QComboBox()
@@ -78,9 +87,19 @@ class SpatialEditor(QWidget):
         self.saved.blockSignals(False)
         self.canvas.roi = deepcopy(self.regions['roi'])
         self.canvas.point_gates = deepcopy(self.regions['points'])
+        self.crop_before_detect.blockSignals(True)
+        self.crop_before_detect.setEnabled(bool(self.regions['roi']))
+        self.crop_before_detect.setChecked(self.regions.get('crop_before_detect', False))
+        self.crop_before_detect.blockSignals(False)
         self.canvas.redraw()
         self.status.setText(('จำกัดพื้นที่ ROI' if self.regions['roi'] else 'ใช้ทั้งภาพ') +
                             f" · {len(self.regions['points'])} จุดผ่าน")
+
+    def change_crop(self, checked):
+        if self.regions['roi']:
+            self.regions['crop_before_detect'] = checked
+        self.sync()
+        self.changed.emit()
 
     def begin(self, mode):
         if self.canvas.image is None:
@@ -106,6 +125,7 @@ class SpatialEditor(QWidget):
     def clear_roi(self):
         self.canvas.image_draw = self.canvas.image_first = None
         self.regions['roi'] = []
+        self.regions.pop('crop_before_detect', None)
         self.sync()
         self.changed.emit()
 

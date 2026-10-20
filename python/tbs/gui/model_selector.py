@@ -2,6 +2,7 @@
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QComboBox, QLineEdit, QLabel, QPushButton, QSizePolicy
 from PySide6.QtWidgets import QProgressBar
+from copy import deepcopy
 import threading
 from ..models import ModelRegistry, PRESETS, check_model
 from ..model_download import download_model
@@ -19,6 +20,7 @@ class ModelSelector(QWidget):
         self.registry = registry or ModelRegistry()
         self.options_provider = lambda: {}
         self.image_provider = lambda: None
+        self.regions_provider = lambda: None
         self.expected_hash = None
         self.download_cancel = threading.Event()
         self.tasks = TaskService(self)
@@ -141,12 +143,14 @@ class ModelSelector(QWidget):
             path = self.path.text().strip()
             expected = self.expected_hash
             options, image = self.options_provider(), self.image_provider()
+            regions = deepcopy(self.regions_provider())
             # Canvas images are RGB; detector inputs follow the pipeline's BGR contract.
             image = image[:, :, ::-1].copy() if image is not None else None
             def check():
-                result = check_model(path, options, image, expected)
+                result = (check_model(path, options, image, expected) if regions is None else
+                          check_model(path, options, image, expected, image_regions=regions))
                 result["preview_rgb"] = image[:, :, ::-1].copy() if image is not None else None
-                return dict(kind="check", path=path, options=options, result=result)
+                return dict(kind="check", path=path, options=options, regions=regions, result=result)
             self.begin(check)
         except (ValueError, OSError) as exc:
             self.info.setText(str(exc))
@@ -187,12 +191,13 @@ class ModelSelector(QWidget):
                               f"{info['filename']} · {info['format']} · SHA-256 {info['sha256'][:12]}…\n{names}")
             try:
                 same_options = self.options_provider() == payload["options"]
+                same_options = same_options and self.regions_provider() == payload['regions']
             except ValueError:
                 same_options = False
             if same_options:
                 self.checked.emit(result)
             else:
-                self.info.setText("ตัวเลือกเปลี่ยนระหว่างตรวจ กรุณาลองโมเดลอีกครั้ง")
+                self.info.setText("ตัวเลือกหรือ ROI เปลี่ยนระหว่างตรวจ กรุณาลองโมเดลอีกครั้ง")
 
     def expected_sha256(self):
         return self.expected_hash

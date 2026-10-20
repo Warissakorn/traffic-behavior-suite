@@ -35,6 +35,8 @@ def main(argv=None):
     demo.add_argument("--output", required=True)
     gui = sub.add_parser("gui", help="Open the desktop test application")
     gui.add_argument("--smoke", action="store_true", help="Run an offscreen GUI + worker smoke test")
+    resume = sub.add_parser('resume', help='Resume a site run from its last committed clip')
+    resume.add_argument('run')
     sub.add_parser("diagnostics", help="Report installed runtime modules")
     reid = sub.add_parser("reid", help="Match tracked vehicles across observations and review observed OD")
     reid_sub = reid.add_subparsers(dest="reid_command", required=True)
@@ -79,6 +81,12 @@ def main(argv=None):
             from .pipeline import run
             out, report = run(args.config, args.output)
             print(json.dumps({"output": str(out), **report}, ensure_ascii=False))
+        elif args.command == 'resume':
+            from pathlib import Path
+            from .pipeline import run
+            directory = Path(args.run).resolve()
+            out, report = run(directory/'source.yaml', directory.parent, resume=directory)
+            print(json.dumps({'output': str(out), **report}, ensure_ascii=False))
         elif args.command == "demo":
             from .demo import benchmark
             print(json.dumps(benchmark(args.output), indent=2))

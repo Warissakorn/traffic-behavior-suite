@@ -104,3 +104,17 @@ def test_config_document_roundtrip_and_snapshot(tmp_path):
     assert opened.config["road"]["count_lines"][0]["reid_reference"]
     assert Path(opened.config["videos"][0]["path"]).is_file()
     assert opened.validate(tmp_path/"snapshot.yaml")["description"]=="ภาษาไทย"
+
+
+def test_worker_pause_after_clip_then_resume_protocol(tmp_path):
+    path = fixture(tmp_path/'input')
+    result = invoke_worker(tmp_path, ['--config', str(path), '--pause-after-clips', '1'])
+    assert result.returncode == 4, result.stderr
+    events = EventParser().feed(result.stdout.encode())
+    assert events[-1]['type'] == 'paused'
+    directory = next(event['output'] for event in events if event['type'] == 'started')
+    result = invoke_worker(tmp_path, ['--resume', directory], session='resumed')
+    assert result.returncode == 0, result.stderr
+    events = EventParser().feed(result.stdout.encode())
+    assert events[-1]['type'] == 'completed'
+    assert ResultStore(directory).manifest['frames'] == 50

@@ -2,6 +2,9 @@
 
 เรียงตามลำดับการพึ่งพา ทุกเฟสจบเมื่อผ่าน **exit criteria** ที่วัดได้
 
+แผนเฉพาะสำหรับวิดีโอ 06:00–22:00 ประมาณ 96 คลิป และการจับคู่รถเข้า–ออกโครงการ:
+ดู [แผนงานสำรวจตลอดวัน](LONG_SURVEY_PLAN.md) ซึ่งจัดชุดส่งมอบและเกณฑ์ทดสอบก่อนเริ่มแก้โค้ด
+
 | เฟส | งานหลัก | Exit criteria |
 |---|---|---|
 | **0 — Foundation** | repo, CI, config + JSON Schema, Parquet schema, นำเข้า ground truth (CVAT), benchmark harness, ชุดข้อมูลอ้างอิง ≥ 2 site | benchmark รันอัตโนมัติใน CI และได้ baseline จากโปรแกรมเดิม |

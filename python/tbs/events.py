@@ -6,6 +6,10 @@ class CancelledError(Exception):
     """A cooperative user cancellation, not a processing error."""
 
 
+class PausedError(CancelledError):
+    """A resumable user pause; only committed clips are retained."""
+
+
 class EventParser:
     def __init__(self, limit=1024*1024):
         self.buffer = b""
@@ -23,7 +27,7 @@ class EventParser:
             event = json.loads(line.decode("utf-8"))
             if not isinstance(event, dict) or event.get("event_version") != 1:
                 raise ValueError("Unsupported worker event protocol")
-            if event.get("type") not in {"started", "stage", "progress", "warning", "heartbeat", "completed", "cancelled", "failed"}:
+            if event.get("type") not in {"started", "stage", "progress", "warning", "heartbeat", "completed", "cancelled", "paused", "failed"}:
                 raise ValueError("Unknown worker event type")
             events.append(event)
         if len(self.buffer) > self.limit:

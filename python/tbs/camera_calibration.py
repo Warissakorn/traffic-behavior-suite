@@ -57,6 +57,12 @@ def rectangle_points(width, length):
     return [[0., 0.], [width, 0.], [width, length], [0., length]]
 
 
+def road_points(width, length):
+    """Start/end on one road edge, then end/start on the other edge."""
+    corners = rectangle_points(width, length)
+    return [corners[index] for index in (0, 3, 2, 1)]
+
+
 def calibrate_camera(image_points, ground_points, image_size):
     """Normalised DLT, using every correspondence (no silent point rejection)."""
     pixels, ground = np.asarray(image_points, dtype=float), np.asarray(ground_points, dtype=float)

@@ -11,7 +11,9 @@
     "epoch": {"type": "string", "format": "date-time"},
     "videos": {"type": "array", "minItems": 1, "items": {
       "type": "object", "required": ["path", "start_time"], "additionalProperties": false,
-      "properties": {"path": {"type": "string", "minLength": 1}, "start_time": {"type": "string", "format": "date-time"}}
+      "properties": {"path": {"type": "string", "minLength": 1}, "start_time": {"type": "string", "format": "date-time"},
+        "time_source": {"enum": ["filename", "interval", "manual", "legacy_contiguous"]},
+        "time_format": {"type": "string"}, "interval_s": {"type": "number", "exclusiveMinimum": 0}}
     }},
     "camera": {"type": "object", "required": ["model_file"], "additionalProperties": false,
       "properties": {"model_file": {"type": "string", "minLength": 1}}},
