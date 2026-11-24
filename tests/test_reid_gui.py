@@ -111,3 +111,41 @@ def test_source_without_candidate_can_be_viewed_and_reviewed(app, observed_confi
     assert source not in page.result['source_reviews']
     assert page.stop()
     shiboken6.delete(page)
+
+
+def test_od_setup_gates_actions_and_restores_skipped_review_position(app, observed_config, tmp_path):
+    from PySide6.QtCore import QSettings
+
+    settings_path = str(tmp_path / 'settings.ini')
+    settings = QSettings(settings_path, QSettings.Format.IniFormat)
+    output = str(tmp_path / 'queue')
+    page = ReIDPage(QLineEdit(output), settings=settings)
+    assert not page.run_button.isEnabled()
+    assert not page.delete_observation.isEnabled()
+    assert not page.delete_link.isEnabled()
+    page.populate(workflow.validate_config(observed_config))
+    assert page.run_button.isEnabled()
+    page.links.selectRow(0)
+    assert page.delete_link.isEnabled()
+    page.start()
+    wait(app, lambda: not page.busy())
+    first = page.current_pair()['id']
+    page.skip_button.click()
+    second = page.current_pair()['id']
+    assert first != second
+    assert all(pair['status'] == 'pending' for pair in page.result['candidates'])
+    assert 'ช่วงห่าง' in page.pair_info.text()
+    directory = page.directory
+    assert page.stop()
+    shiboken6.delete(page)
+    settings.sync()
+
+    reopened = ReIDPage(QLineEdit(output), settings=QSettings(settings_path, QSettings.Format.IniFormat))
+    reopened.open_result(path=directory)
+    wait(app, lambda: not reopened.busy())
+    assert reopened.current_pair()['id'] == second
+    reopened.accept_button.click()
+    wait(app, lambda: not reopened.busy())
+    assert reopened.current_pair()['id'] == first
+    assert reopened.stop()
+    shiboken6.delete(reopened)

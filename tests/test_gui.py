@@ -261,3 +261,55 @@ def test_download_picker_reports_network_failure_and_allows_retry(app, tmp_path,
     assert widget.records == []
     assert widget.stop()
     shiboken6.delete(widget)
+
+
+def test_video_handoff_checks_inputs_and_keeps_the_clip_path(app, tmp_path):
+    fixture(tmp_path)
+    clip = tmp_path / "synthetic.mkv"
+    weights = tmp_path / "traffic.pt"
+    weights.write_bytes(b"test weights")
+    w = MainWindow()
+    page = w.video_page
+    page.model_path.clear()
+    page.open_video(clip)
+    pump(app, lambda: page.player.ready)
+    assert not page.run_button.isEnabled()
+    assert "เลือกโมเดล" in page.test_hint.text()
+
+    page.model_path.setText(str(weights))
+    assert page.run_button.isEnabled()
+    page.site_button.click()
+    pump(app, lambda: w.setup_player.ready)
+    assert w.collect()["videos"] == [{"path": str(clip), "start_time": ""}]
+    assert w.model_path.text() == str(weights)
+    assert not w.run_button.isEnabled()
+    item = w.videos.item(0, 0)
+    assert item.toolTip() == str(clip)
+    w.setup_toggle.setChecked(False)
+    w.readiness_buttons["กล้อง"].click()
+    assert w.setup_toggle.isChecked()
+    assert w.setup_controls.currentIndex() == 1
+    w.videos.item(0, 1).setText("2026-11-24T07:00:00+07:00")
+    w.camera_path.setText(str(tmp_path / "camera.yaml"))
+    assert w.run_button.isEnabled()
+    dispose(w, app)
+
+
+def test_count_group_opens_the_matching_vehicle_and_line(app, tmp_path):
+    w = MainWindow()
+    w.output_path.setText(str(tmp_path / "runs"))
+    w.start_demo()
+    pump(app, lambda: w.store is not None and w.counts_table.rowCount() == 1)
+    assert w.result_tabs.currentIndex() == 0
+    assert w.counts_table.horizontalHeaderItem(1).text() == "ทิศทาง"
+    w.select_crossing_group(0, 0)
+    pump(app, lambda: w.crossings.rowCount() == 1)
+    w.crossings.selectRow(0)
+    w.crossing_open.click()
+    pump(app, lambda: w.review_canvas.highlight_track == 1)
+    assert w.result_tabs.currentIndex() == 2
+    assert w.review_canvas.selected == "mid"
+    assert any(row["track_id"] == 1 for row in w.review_canvas.detections)
+    w.review_slider.setValue(0)
+    assert w.review_canvas.highlight_track is None
+    dispose(w, app)

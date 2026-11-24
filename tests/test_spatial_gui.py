@@ -77,6 +77,14 @@ def test_site_geometry_roundtrips_collect_and_results_filter(app, point_run):
     pump(app, lambda: window.store.point_filter == 'A' and window.result_tasks.task is None)
     assert [v['vehicle_id'] for v in window.store.page('vehicles')] == [1]
     assert len(window.review_canvas.point_gates) == 3
+    assert window.counts_table.horizontalHeaderItem(0).text() == 'จุดผ่าน'
+    window.select_crossing_group(0, 0)
+    pump(app, lambda: window.crossings.rowCount() == 1)
+    event = window.crossing_rows[0]
+    window.open_crossing(0)
+    pump(app, lambda: window.review_canvas.selected_gate == 'A')
+    assert window.review_canvas.highlight_track == event['vehicle_id']
+    assert window.review_slider.value() == event['frame_index']
     assert window.stop_services()
     window.dirty = False
     window.close()

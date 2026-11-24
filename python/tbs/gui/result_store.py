@@ -93,24 +93,37 @@ class ResultStore:
                 for batch in file.iter_batches(columns=["class_id"]):
                     totals.update(batch.column(0).to_pylist())
             return [dict(class_id=key, detections=value) for key, value in sorted(totals.items())]
-        classes = {}
-        with pq.ParquetFile(self.path/"vehicles.parquet") as file:
-            for batch in file.iter_batches(columns=["vehicle_id", "class_id"]):
-                classes.update({r["vehicle_id"]: r["class_id"] for r in batch.to_pylist()})
-        if self.point_filter:
-            totals = Counter()
-            for rows in self.batches('point_passages'):
-                for row in rows:
-                    totals[(row['point_id'], row['direction'], classes.get(row['vehicle_id'], -1))] += 1
-            return [dict(point_id=k[0], direction=k[1], class_id=k[2], events=v) for k, v in sorted(totals.items())]
-        totals = Counter()
-        with pq.ParquetFile(self.path/"line_crossings.parquet") as file:
-            for batch in file.iter_batches():
-                for row in batch.to_pylist():
-                    if not self.includes('line_crossings', row):
-                        continue
-                    totals[(row["line_id"], row["direction"], classes.get(row["vehicle_id"], -1))] += 1
-        return [dict(line_id=k[0], direction=k[1], class_id=k[2], events=v) for k, v in sorted(totals.items())]
+        dataset, key = self.crossing_group()
+        classes = self.vehicle_classes()
+        totals = Counter((row[key], row['direction'], classes.get(row['vehicle_id'], -1))
+                         for rows in self.batches(dataset) for row in rows)
+        return [{key: gate, 'direction': direction, 'class_id': class_id, 'events': total}
+                for (gate, direction, class_id), total in sorted(totals.items())]
+
+    def vehicle_classes(self):
+        with pq.ParquetFile(self.path/'vehicles.parquet') as file:
+            return {row['vehicle_id']: row['class_id']
+                    for batch in file.iter_batches(columns=['vehicle_id', 'class_id']) for row in batch.to_pylist()}
+
+    def crossing_group(self):
+        return ('point_passages', 'point_id') if self.point_filter else ('line_crossings', 'line_id')
+
+    def crossing_events(self, group, offset, limit):
+        dataset, key = self.crossing_group()
+        classes = self.vehicle_classes()
+        result = []
+        for rows in self.batches(dataset):
+            for row in rows:
+                if (row[key], row['direction'], classes.get(row['vehicle_id'], -1)) != (
+                        group[key], group['direction'], group['class_id']):
+                    continue
+                if offset:
+                    offset -= 1
+                    continue
+                result.append(row)
+                if len(result) == limit:
+                    return result
+        return result
 
     def frame(self, index):
         group = bisect.bisect_right(self.frame_ends,index)
@@ -134,6 +147,15 @@ class ResultStore:
             if index < 0 and group > 0:
                 return file.read_row_group(group-1).to_pylist()[-1]
         return rows[max(0, index)]
+
+    def crossing_frame(self, event):
+        if "frame_index" in event:
+            return self.frame(event["frame_index"])
+        before = self.frame_at(event["t"])
+        if before["frame_index"] + 1 == self.frame_ends[-1]:
+            return before
+        after = self.frame(before["frame_index"] + 1)
+        return min((before, after), key=lambda frame: abs(frame["t"] - event["t"]))
 
     def frame_detections(self, index):
         result = []

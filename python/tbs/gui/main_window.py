@@ -11,8 +11,9 @@ from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
     QLabel, QPushButton, QLineEdit, QListWidget, QStackedWidget, QTabWidget, QTableWidget,
     QTableWidgetItem, QFileDialog, QMessageBox, QSplitter, QPlainTextEdit, QProgressBar,
-    QSlider, QAbstractItemView, QComboBox, QScrollArea, QHeaderView)
+    QSlider, QAbstractItemView, QComboBox, QScrollArea, QHeaderView, QStyledItemDelegate)
 from ..app_paths import data_dir
+from ..config import timestamp
 from ..diagnostics import report as diagnostics
 from ..video import VideoReader, probe_video, check_playlist
 from ..camera_calibration import camera_matrix, check_image_size
@@ -62,6 +63,13 @@ def display_table(widget, rows):
     widget.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
 
 
+class ClipNameDelegate(QStyledItemDelegate):
+    def initStyleOption(self, option, index):
+        super().initStyleOption(option, index)
+        if option.text:
+            option.text = Path(option.text).name
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -83,6 +91,8 @@ class MainWindow(QMainWindow):
         self.preview_tasks.result.connect(self.preview_loaded)
         self.result_tasks = TaskService(self)
         self.result_tasks.result.connect(self.result_loaded)
+        self.crossing_tasks = TaskService(self)
+        self.crossing_tasks.result.connect(self.crossings_loaded)
         self.export_tasks = TaskService(self)
         self.export_tasks.result.connect(self.export_finished)
         self.validation_tasks = TaskService(self)
@@ -127,7 +137,7 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(root)
         for page in [self.start_page(), self.setup_page(), self.run_page(), self.results_page()]:
             self.stack.addWidget(page)
-        self.reid_page = ReIDPage(self.output_path)
+        self.reid_page = ReIDPage(self.output_path, settings=self.settings)
         self.stack.addWidget(self.reid_page)
         self.nav.currentRowChanged.connect(self.change_workspace)
         self.start_tabs.currentChanged.connect(lambda index: self.video_page.player.pause() if index != 0 else None)
@@ -219,10 +229,14 @@ class MainWindow(QMainWindow):
         tabs.setMinimumWidth(260)
         videos = QWidget()
         vbox = QVBoxLayout(videos)
-        self.videos = table(["ไฟล์วิดีโอ", "เวลาเริ่มเฟรมแรก (timezone)"])
+        self.videos = table(["ชื่อคลิป", "เวลาเริ่มคลิป"])
+        self.videos.setItemDelegateForColumn(0, ClipNameDelegate(self.videos))
+        self.videos.horizontalHeaderItem(1).setToolTip("เวลาเฟรมแรกพร้อมเขตเวลา เช่น +07:00")
+        self.videos.itemChanged.connect(self.update_clip_tooltip)
+        self.videos.horizontalHeader().setStretchLastSection(False)
         self.videos.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.videos.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
-        self.videos.setColumnWidth(1, 180)
+        self.videos.setColumnWidth(1, 184)
         self.videos.itemSelectionChanged.connect(lambda: self.load_preview() if not self.loading else None)
         vbox.addWidget(self.videos)
         row = QHBoxLayout()
@@ -308,6 +322,14 @@ class MainWindow(QMainWindow):
             self.setup_split.restoreState(state)
         self.setup_toggle.toggled.connect(self.setup_controls.setVisible)
         box.addWidget(self.setup_split,1)
+        readiness = QHBoxLayout()
+        self.readiness_buttons = {}
+        for key, index in [("วิดีโอ", 0), ("กล้อง", 1), ("เส้นนับ", 2), ("โมเดล", 3)]:
+            control = button(key, lambda _, tab=index: self.focus_setup_tab(tab))
+            self.readiness_buttons[key] = control
+            readiness.addWidget(control)
+        readiness.addStretch()
+        box.addLayout(readiness)
         self.validation_label = QLabel("ยังไม่ได้ตรวจความพร้อม")
         self.validation_label.setWordWrap(True)
         self.validation_label.setObjectName("muted")
@@ -383,7 +405,35 @@ class MainWindow(QMainWindow):
         self.counts_note.hide()
         counts_box.addWidget(self.counts_note)
         self.counts_table = table([])
-        counts_box.addWidget(self.counts_table,1)
+        self.counts_table.cellClicked.connect(self.select_crossing_group)
+        self.counts_table.cellActivated.connect(self.select_crossing_group)
+        counts_box.addWidget(self.counts_table, 1)
+        self.crossing_panel = QWidget()
+        crossing_box = QVBoxLayout(self.crossing_panel)
+        crossing_box.setContentsMargins(0, 0, 0, 0)
+        self.crossing_hint = QLabel()
+        self.crossing_hint.setWordWrap(True)
+        crossing_box.addWidget(self.crossing_hint)
+        self.crossings = table(["เวลาในงาน (วินาที)", "รถ"])
+        self.crossings.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        self.crossings.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.crossings.cellDoubleClicked.connect(self.open_crossing)
+        crossing_box.addWidget(self.crossings, 1)
+        row = QHBoxLayout()
+        self.crossing_previous = button("ก่อนหน้า", lambda: self.load_crossings(self.crossing_offset - 100))
+        self.crossing_next = button("ถัดไป", lambda: self.load_crossings(self.crossing_offset + 100))
+        self.crossing_open = button("ดูเหตุการณ์ในวิดีโอ", lambda: self.open_crossing(self.crossings.currentRow()))
+        self.crossings.itemSelectionChanged.connect(
+            lambda: self.crossing_open.setEnabled(bool(self.crossings.selectedItems())))
+        row.addWidget(self.crossing_previous)
+        row.addWidget(self.crossing_next)
+        row.addStretch()
+        row.addWidget(self.crossing_open)
+        crossing_box.addLayout(row)
+        counts_box.addWidget(self.crossing_panel, 1)
+        self.crossing_group = None
+        self.crossing_panel.hide()
+        self.crossing_evidence = None
         tabs.addTab(counts,"การนับ")
         samples = QWidget()
         vbox = QVBoxLayout(samples)
@@ -421,6 +471,10 @@ class MainWindow(QMainWindow):
         self.review_slider.valueChanged.connect(self.seek_review)
         rbox.addLayout(row)
         rbox.addWidget(self.review_slider)
+        self.evidence_label = QLabel()
+        self.evidence_label.setWordWrap(True)
+        self.evidence_label.hide()
+        rbox.addWidget(self.evidence_label)
         tabs.addTab(review,"ภาพ + overlay")
         self.result_diagnostics = QPlainTextEdit()
         self.result_diagnostics.setReadOnly(True)
@@ -433,13 +487,80 @@ class MainWindow(QMainWindow):
         box.addLayout(row)
         return page
 
+    def focus_setup_tab(self, index):
+        self.setup_toggle.setChecked(True)
+        self.setup_controls.setCurrentIndex(index)
+
+    def update_clip_tooltip(self, item):
+        if item.toolTip() != item.text():
+            previous = self.videos.blockSignals(True)
+            item.setToolTip(item.text())
+            self.videos.blockSignals(previous)
+
+    def update_site_readiness(self):
+        clips = self.videos.rowCount()
+        clip_status = f"{clips} คลิป"
+        try:
+            timestamp(self.epoch.text().strip())
+            for row in range(clips):
+                timestamp(self.cell(self.videos, row, 1))
+        except ValueError:
+            clip_status = "ตรวจเวลาเริ่ม"
+        if not clips:
+            clip_status = "ยังไม่มีคลิป"
+        camera = self.camera_path.text().strip()
+        model = self.model_path.text().strip()
+        lines = self.lines.rowCount()
+        line_status = f"{lines} เส้น" if lines else "ยังไม่มี (ข้ามได้)"
+        missing = []
+        if not clips or clip_status == "ตรวจเวลาเริ่ม":
+            missing.append("เพิ่มคลิปและระบุเวลาเริ่มพร้อมเขตเวลา")
+        camera_status = "เลือกไฟล์แล้ว"
+        if not camera:
+            camera_status = "ยังไม่ได้ตั้งพิกัด"
+            missing.append("ตั้งพิกัดกล้อง")
+        elif not Path(camera).is_file():
+            camera_status = "ไม่พบไฟล์"
+            missing.append("เลือกไฟล์พิกัดกล้องที่มีอยู่")
+        model_status = "เลือกแล้ว"
+        if not model:
+            model_status = "ยังไม่ได้เลือก"
+            missing.append("เลือกโมเดล")
+        elif model != "synthetic_color" and not Path(model).is_file():
+            model_status = "ไม่พบไฟล์"
+            missing.append("เลือกไฟล์โมเดลที่มีอยู่")
+        try:
+            identifiers = set()
+            for row in range(lines):
+                key = self.cell(self.lines, row, 0)
+                coordinates = [float(self.cell(self.lines, row, column)) for column in range(1, 5)]
+                if (not key or key in identifiers or not np.isfinite(coordinates).all()
+                        or coordinates[:2] == coordinates[2:]):
+                    raise ValueError("Invalid count line")
+                identifiers.add(key)
+        except ValueError:
+            line_status = "ตรวจตำแหน่งเส้น"
+            missing.append("แก้ ID และจุดปลายเส้นนับ")
+        statuses = {
+            "วิดีโอ": clip_status,
+            "กล้อง": camera_status,
+            "เส้นนับ": line_status,
+            "โมเดล": model_status,
+        }
+        for key, status in statuses.items():
+            self.readiness_buttons[key].setText(f"{key} · {status}")
+        self.run_button.setEnabled(not missing and not self.job.active)
+        self.run_button.setToolTip(" · ".join(missing) if missing else "ตรวจความพร้อมแล้วเริ่มประมวลผล")
+        return missing
+
     def changed(self,*args):
         if not self.loading:
             self.dirty = True
             self.validation_tasks.token += 1
             self.validation_tasks.pending = None
-            self.run_button.setEnabled(not self.job.active)
-            self.validation_label.setText("มีการแก้ไข · ตรวจความพร้อมอีกครั้งก่อนรัน")
+            missing = self.update_site_readiness()
+            self.validation_label.setText(" · ".join(missing) if missing else
+                                          "มีการแก้ไข · ตรวจความพร้อมอีกครั้งก่อนรัน")
 
     def toggle_navigation(self):
         self.nav.setVisible(self.nav.isHidden())
@@ -468,7 +589,7 @@ class MainWindow(QMainWindow):
         if not self.confirm_discard():
             return
         self.document = SiteDocument()
-        self.document.config["videos"] = [dict(path=path, start_time=self.document.config["epoch"])]
+        self.document.config["videos"] = [dict(path=path, start_time="")]
         self.document.config["models"]["detector"] = model
         expected = self.video_page.model_selector.expected_sha256()
         if expected:
@@ -478,7 +599,10 @@ class MainWindow(QMainWindow):
         self.populate()
         self.dirty = True
         self.nav.setCurrentRow(1)
-        self.load_preview()
+        self.focus_setup_tab(0)
+        self.videos.setCurrentCell(0, 1)
+        self.videos.setFocus()
+        self.videos.editItem(self.videos.item(0, 1))
 
     def start_video_test(self, config):
         if self.job.active:
@@ -514,7 +638,9 @@ class MainWindow(QMainWindow):
             self.append_row(self.lines,[line["id"],*line["p1"],*line["p2"]])
         self.loading = False
         self.dirty = False
-        self.site_label.setText("Site: " + c.get("site_id",""))
+        self.site_label.setText("จุดสำรวจ " + c.get("site_id",""))
+        missing = self.update_site_readiness()
+        self.validation_label.setText(" · ".join(missing) if missing else "ยังไม่ได้ตรวจความพร้อม")
 
     def collect(self):
         c = deepcopy(self.document.config)
@@ -700,16 +826,15 @@ class MainWindow(QMainWindow):
         row = self.videos.currentRow()
         target = row+direction
         if 0 <= row < self.videos.rowCount() and 0 <= target < self.videos.rowCount():
-            first_data = self.videos.item(row, 0).data(Qt.ItemDataRole.UserRole)
-            second_data = self.videos.item(target, 0).data(Qt.ItemDataRole.UserRole)
-            a = [self.cell(self.videos,row,j) for j in range(2)]
-            b = [self.cell(self.videos,target,j) for j in range(2)]
-            for j in range(2):
-                self.videos.setItem(row,j,QTableWidgetItem(b[j]))
-                self.videos.setItem(target,j,QTableWidgetItem(a[j]))
-            self.videos.item(row, 0).setData(Qt.ItemDataRole.UserRole, second_data)
-            self.videos.item(target, 0).setData(Qt.ItemDataRole.UserRole, first_data)
-            self.videos.setCurrentCell(target,0)
+            self.loading = True
+            for column in range(self.videos.columnCount()):
+                first = self.videos.takeItem(row, column)
+                second = self.videos.takeItem(target, column)
+                self.videos.setItem(row, column, second)
+                self.videos.setItem(target, column, first)
+            self.loading = False
+            self.changed()
+            self.videos.setCurrentCell(target, 0)
 
     def add_line(self):
         self.append_row(self.lines,[f"L{self.lines.rowCount()+1}","","","",""])
@@ -774,7 +899,8 @@ class MainWindow(QMainWindow):
         self.setup_canvas.matrix = None
         self.setup_canvas.lines = []
         if not self.camera_path.text().strip():
-            self.validation_label.setText("ดูวิดีโอได้แล้ว · สร้างหรือเลือก Camera YAML เพื่อวิเคราะห์พิกัดพื้น")
+            missing = self.update_site_readiness()
+            self.validation_label.setText(" · ".join(missing))
             self.setup_canvas.redraw()
             return False
         try:
@@ -799,10 +925,24 @@ class MainWindow(QMainWindow):
             self.play_timer.stop()
             self.play_button.setText("เล่น")
             self.statusBar().showMessage(error)
+            if self.crossing_evidence:
+                self.evidence_label.setText(error)
             return
         mode,image,detections,info = payload
         canvas = self.setup_canvas if mode=="setup" else self.review_canvas
         canvas.detections = detections or []
+        if mode == "review" and self.crossing_evidence:
+            event = self.crossing_evidence
+            track = event["vehicle_id"]
+            gate = event.get("line_id") or event["point_id"]
+            canvas.highlight_track = track
+            canvas.selected = event.get("line_id")
+            canvas.selected_gate = event.get("point_id")
+            message = f"รถ {track} · {gate} · เวลาเหตุการณ์ {event['t']:.3f} วินาที"
+            if not any(row["track_id"] == track for row in canvas.detections):
+                message += " · เฟรมนี้ไม่มีกรอบตรวจจับของรถคันนี้"
+            self.evidence_label.setText(message)
+            self.evidence_label.show()
         canvas.set_image(image,fit=canvas.auto_fit or canvas.image is None)
         if info:
             self.review_label.setText(f"Frame {info['frame_index']} · clip {info['clip_index']} · PTS {info['t_video']:.3f} s")
@@ -831,7 +971,7 @@ class MainWindow(QMainWindow):
             return False
 
     def validated(self, payload, error):
-        self.run_button.setEnabled(not self.job.active)
+        self.update_site_readiness()
         if error:
             self.validation_label.setText(error)
             return
@@ -936,13 +1076,13 @@ class MainWindow(QMainWindow):
         self.run_title.setText("กำลังรอขั้นปัจจุบันหยุด…")
         self.cancel_button.setEnabled(False)
         self.pause_button.setEnabled(False)
-        QTimer.singleShot(5000,lambda: self.force_button.setEnabled(self.job.active))
+        QTimer.singleShot(5000, self, lambda: self.force_button.setEnabled(self.job.active))
 
     def pause_job(self):
         self.job.pause()
         self.pause_button.setEnabled(False)
         self.run_title.setText('กำลังพักงาน · เก็บเฉพาะคลิปที่ commit แล้ว')
-        QTimer.singleShot(5000, lambda: self.force_button.setEnabled(self.job.active))
+        QTimer.singleShot(5000, self, lambda: self.force_button.setEnabled(self.job.active))
 
     def resume_job(self, checked=False, path=None):
         if self.job.active:
@@ -971,7 +1111,7 @@ class MainWindow(QMainWindow):
         self.pause_button.setEnabled(False)
         self.resume_button.setEnabled(True)
         self.demo_button.setEnabled(True)
-        self.run_button.setEnabled(True)
+        self.update_site_readiness()
         self.stack.widget(1).setEnabled(True)
         self.video_page.setEnabled(True)
         labels = {"completed":"สำเร็จ","cancelled":"ยกเลิกแล้ว","failed":"ไม่สำเร็จ", 'paused':'พักงานแล้ว · เปิดทำต่อได้'}
@@ -1000,6 +1140,8 @@ class MainWindow(QMainWindow):
         self.play_button.setText("เล่น")
         self.preview_tasks.token += 1
         self.preview_tasks.pending = None
+        self.clear_crossing_evidence()
+        self.reset_crossings()
         self.result_tasks.request(lambda: ("load",ResultStore(path),None))
         self.statusBar().showMessage("กำลังอ่านผลลัพธ์…")
 
@@ -1036,7 +1178,7 @@ class MainWindow(QMainWindow):
             self.dataset.blockSignals(False)
             self.result_tabs.setTabText(0,"Detection ตาม class" if value.mode == "video_test" else "การนับ")
             self.counts_note.setVisible(value.mode == "video_test")
-            self.result_tabs.setCurrentIndex(2)
+            self.result_tabs.setCurrentIndex(2 if value.mode == "video_test" else 0)
             self.review_slider.blockSignals(True)
             self.review_slider.setRange(0,max(0,m["frames"]-1))
             self.review_slider.setValue(0)
@@ -1054,12 +1196,103 @@ class MainWindow(QMainWindow):
         elif kind=="tables":
             display_table(self.results_table,value)
             if extra is not None:
-                display_table(self.counts_table,extra)
+                self.show_counts(extra)
             self.page_label.setText(f"{self.offset+1 if value else 0}–{self.offset+len(value)}")
         self.statusBar().showMessage("อ่านผลลัพธ์แล้ว")
 
+    def show_counts(self, rows):
+        self.reset_crossings()
+        self.counts_rows = rows
+        class_names = self.store.manifest.get("detector_model", {}).get("class_names", {})
+        display = []
+        for row in rows:
+            class_id = row["class_id"]
+            name = class_names.get(str(class_id)) or ("ไม่ทราบประเภท" if class_id < 0 else f"คลาส {class_id}")
+            if self.store.mode == "video_test":
+                display.append({"ประเภทที่ตรวจจับ": name, "จำนวนการตรวจจับ": row["detections"]})
+            else:
+                point = "point_id" in row
+                direction = "ด้านลบ → ด้านบวก" if row["direction"] == 1 else "ด้านบวก → ด้านลบ"
+                display.append({"จุดผ่าน" if point else "เส้นนับ": row["point_id" if point else "line_id"],
+                                "ทิศทาง": direction, "ประเภทรถ": name, "จำนวนครั้งที่ผ่าน": row["events"]})
+        display_table(self.counts_table, display)
+        for column in range(max(0, self.counts_table.columnCount() - 1)):
+            self.counts_table.resizeColumnToContents(column)
+        if rows and self.store.mode == "site":
+            self.counts_note.setText("เลือกแถวเพื่อดูเหตุการณ์ · ด้านของเส้นอ้างอิงทิศจาก p1 ไป p2")
+            self.counts_note.show()
+        elif self.store.mode == "site":
+            self.counts_note.setText("ไม่พบเหตุการณ์ผ่านเส้นหรือจุดที่เลือก")
+            self.counts_note.show()
+        else:
+            self.counts_note.setText("จำนวนการตรวจจับรวมทุกเฟรม แยกตามประเภท · ไม่ใช่จำนวนรถไม่ซ้ำ")
+
+    def reset_crossings(self):
+        self.crossing_tasks.token += 1
+        self.crossing_tasks.pending = None
+        self.crossing_group = None
+        self.counts_rows = []
+        self.crossing_panel.hide()
+
+    def select_crossing_group(self, row, _column):
+        if self.store and self.store.mode == "site" and 0 <= row < len(self.counts_rows):
+            group = self.counts_rows[row]
+            if group != self.crossing_group:
+                self.crossing_group = group
+                self.load_crossings(0)
+
+    def load_crossings(self, offset):
+        store, group = self.store, self.crossing_group
+        self.crossing_offset = offset
+        self.crossing_rows = []
+        self.crossings.setRowCount(0)
+        self.crossing_hint.setText("กำลังอ่านเหตุการณ์…")
+        self.crossing_panel.show()
+        for control in (self.crossing_previous, self.crossing_next, self.crossing_open):
+            control.setEnabled(False)
+        self.crossing_tasks.request(lambda: store.crossing_events(group, offset, 100))
+
+    def crossings_loaded(self, rows, error):
+        if error:
+            self.crossing_hint.setText(error)
+            return
+        self.crossing_rows = rows
+        for row in rows:
+            self.append_row(self.crossings, [f"{row['t']:.3f}", row["vehicle_id"]])
+        total = self.crossing_group["events"]
+        end = self.crossing_offset + len(rows)
+        self.crossing_hint.setText(f"เหตุการณ์ {self.crossing_offset + 1}–{end} จาก {total} · เลือกเหตุการณ์เพื่อดูภาพ")
+        self.crossing_previous.setEnabled(self.crossing_offset > 0)
+        self.crossing_next.setEnabled(end < total)
+
+    def open_crossing(self, row, _column=0):
+        if not 0 <= row < len(self.crossing_rows):
+            return
+        store, event = self.store, self.crossing_rows[row]
+        self.pause_review()
+        self.seek_timer.stop()
+        self.crossing_evidence = event
+        self.evidence_label.setText("กำลังเปิดภาพเหตุการณ์…")
+        self.evidence_label.show()
+        self.result_tabs.setCurrentIndex(2)
+
+        def preview():
+            return self.decode_review(store, store.crossing_frame(event))
+
+        self.preview_tasks.request(preview)
+
+    def clear_crossing_evidence(self):
+        self.crossing_evidence = None
+        self.review_canvas.highlight_track = None
+        self.review_canvas.selected = None
+        self.review_canvas.selected_gate = None
+        self.evidence_label.hide()
+        self.review_canvas.redraw()
+
     def filter_point(self):
         if self.store:
+            self.clear_crossing_evidence()
+            self.reset_crossings()
             store, point = self.store, self.point_filter.currentData()
             self.result_tasks.request(lambda: ('filter', store.with_point(point), None))
 
@@ -1090,6 +1323,7 @@ class MainWindow(QMainWindow):
         return "review",image,store.frame_detections(info["frame_index"]),info
 
     def seek_review(self):
+        self.clear_crossing_evidence()
         self.play_timer.stop()
         self.play_button.setText("เล่น")
         self.preview_tasks.token += 1
@@ -1106,6 +1340,9 @@ class MainWindow(QMainWindow):
             self.play_timer.stop()
             self.play_button.setText("เล่น")
         elif self.store:
+            self.clear_crossing_evidence()
+            self.preview_tasks.token += 1
+            self.preview_tasks.pending = None
             self.seek_timer.stop()
             if self.review_slider.value() >= self.review_slider.maximum():
                 self.review_slider.blockSignals(True)
@@ -1157,7 +1394,7 @@ class MainWindow(QMainWindow):
 
     def stop_services(self):
         stopped = [service.stop() for service in [self.preview_tasks,self.result_tasks,self.export_tasks,
-                                                   self.validation_tasks,self.import_tasks]]
+                                                   self.validation_tasks,self.import_tasks,self.crossing_tasks]]
         stopped += [self.video_page.player.stop(), self.setup_player.stop()]
         stopped += [self.model_selector.stop(), self.video_page.model_selector.stop()]
         stopped += [self.reid_page.stop()]

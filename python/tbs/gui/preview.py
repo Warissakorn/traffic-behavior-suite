@@ -91,6 +91,8 @@ class Canvas(QGraphicsView):
         self.detections = []
         self.image = None
         self.selected = None
+        self.selected_gate = None
+        self.highlight_track = None
         self.drawing = False
         self.first = None
         self.drag = None
@@ -137,7 +139,7 @@ class Canvas(QGraphicsView):
             self.scene().addPolygon(QPolygonF([QPointF(*p) for p in self.roi]), roi_pen,
                                     QBrush(QColor(255, 175, 69, 30)))
         for gate in self.point_gates:
-            pen = QPen(QColor('#dd88ff'), 2)
+            pen = QPen(QColor('#ffca45' if gate['id'] == self.selected_gate else '#dd88ff'), 2)
             pen.setCosmetic(True)
             self.scene().addLine(*gate['p1'], *gate['p2'], pen)
             label = self.scene().addText(gate['id'] + ' p1→p2')
@@ -168,12 +170,18 @@ class Canvas(QGraphicsView):
                 label.setPos(*a)
         pen = QPen(QColor("#65b7ff"), 2)
         pen.setCosmetic(True)
-        for row in self.detections:
-            self.scene().addRect(row["x1"], row["y1"], row["x2"]-row["x1"], row["y2"]-row["y1"], pen)
+        for row in sorted(self.detections, key=lambda row: self.highlight_track is not None and
+                          row.get("track_id") == self.highlight_track):
+            highlighted = self.highlight_track is not None and row.get("track_id") == self.highlight_track
+            box = self.scene().addRect(row["x1"], row["y1"], row["x2"]-row["x1"], row["y2"]-row["y1"], pen)
+            if highlighted:
+                emphasis = QPen(QColor("#ffca45"), 3)
+                emphasis.setCosmetic(True)
+                box.setPen(emphasis)
             identity = f"ID {row['track_id']} · " if row.get("track_id") is not None else ""
             label = self.scene().addText(f"{identity}class {row['class_id']} · {row['score']:.0%}")
             label.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations)
-            label.setDefaultTextColor(QColor("#ffffff"))
+            label.setDefaultTextColor(QColor("#ffca45" if highlighted else "#ffffff"))
             label.setPos(row["x1"], row["y1"])
         if self.first is not None:
             marker = self.scene().addEllipse(-4,-4,8,8,pen)

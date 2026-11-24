@@ -11,6 +11,7 @@ from .widgets import file_field, MODEL_FILTER
 
 
 class ModelSelector(QWidget):
+    activity_changed = Signal()
     registered = Signal()
     checked = Signal(dict)
     download_progress = Signal(int, int)
@@ -22,6 +23,7 @@ class ModelSelector(QWidget):
         self.image_provider = lambda: None
         self.regions_provider = lambda: None
         self.expected_hash = None
+        self.working = False
         self.download_cancel = threading.Event()
         self.tasks = TaskService(self)
         self.tasks.result.connect(self.finished)
@@ -113,9 +115,11 @@ class ModelSelector(QWidget):
         self.tasks.request(function)
 
     def set_controls_enabled(self, enabled):
+        self.working = not enabled
         for widget in (self.saved, self.path, self.profile, self.register_button,
                        self.check_button, self.download_button):
             widget.setEnabled(enabled)
+        self.activity_changed.emit()
 
     def show_progress(self, done, total):
         self.progress.setRange(0, 100)

@@ -1,10 +1,11 @@
 """Cross-point observations, pair review and reviewed OD exports."""
 from datetime import datetime, timezone, timedelta
+from hashlib import sha256
 import json
 from pathlib import Path
 import threading
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, QSettings, QSignalBlocker
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel,
     QPushButton, QLineEdit, QTableWidget, QTableWidgetItem, QFileDialog, QDoubleSpinBox,
@@ -35,9 +36,11 @@ def add_row(widget, values):
 class ReIDPage(QWidget):
     progress_message = Signal(str)
 
-    def __init__(self, output_field, parent=None):
+    def __init__(self, output_field, parent=None, *, settings=None):
         super().__init__(parent)
         self.output_field = output_field
+        self.settings = settings if settings is not None else QSettings("TrafficBehaviorSuite", "DesktopTest")
+        self.pending_review_pair = None
         self.tasks = TaskService(self)
         self.tasks.result.connect(self.finished)
         self.cancelled = threading.Event()
@@ -65,13 +68,14 @@ class ReIDPage(QWidget):
         setup_box.addWidget(self.observations, 2)
         row = QHBoxLayout()
         self.add_button(row, 'เพิ่มผลวิเคราะห์จุดสำรวจ', self.add_observation)
-        self.add_button(row, 'ลบช่วงสำรวจ', lambda: self.observations.removeRow(self.observations.currentRow()))
+        self.delete_observation = self.add_button(
+            row, 'ลบช่วงสำรวจ', lambda: self.observations.removeRow(self.observations.currentRow()))
         setup_box.addLayout(row)
         self.links = grid(['จากจุด', 'ไปจุด', 'เวลาเดินทางต่ำสุด (วินาที)', 'สูงสุด (วินาที)'])
         setup_box.addWidget(self.links, 1)
         row = QHBoxLayout()
-        self.add_button(row, 'เพิ่มเส้นทาง', self.add_link)
-        self.add_button(row, 'ลบเส้นทาง', lambda: self.links.removeRow(self.links.currentRow()))
+        self.add_link_button = self.add_button(row, 'เพิ่มเส้นทาง', self.add_link)
+        self.delete_link = self.add_button(row, 'ลบเส้นทาง', lambda: self.links.removeRow(self.links.currentRow()))
         setup_box.addLayout(row)
         form = QFormLayout()
         self.identity_mode = QComboBox()
@@ -126,6 +130,7 @@ class ReIDPage(QWidget):
         self.source_filter.currentIndexChanged.connect(self.source_changed)
         review_box.addWidget(self.source_filter)
         self.pairs = grid(['คู่ ID', 'จากจุด / รถ', 'ไปจุด / รถ', 'คล้าย', 'เวลา (วินาที)', 'ข้อเสนอ', 'กำกวม', 'ตรวจแล้ว'])
+        self.pairs.setMaximumHeight(116)
         self.pairs.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.pairs.itemSelectionChanged.connect(self.preview_pair)
         review_box.addWidget(self.pairs, 2)
@@ -134,10 +139,15 @@ class ReIDPage(QWidget):
         self.left_frame, self.right_frame = QComboBox(), QComboBox()
         self.left_frame.currentIndexChanged.connect(self.show_frames)
         self.right_frame.currentIndexChanged.connect(self.show_frames)
-        for label, selector in ((self.left, self.left_frame), (self.right, self.right_frame)):
-            label.setMinimumSize(160, 110)
+        self.left_info, self.right_info = QLabel("จุด A"), QLabel("จุด B")
+        for info, label, selector in ((self.left_info, self.left, self.left_frame),
+                                      (self.right_info, self.right, self.right_frame)):
+            label.setMinimumWidth(160)
+            label.setFixedHeight(100)
             label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             column = QVBoxLayout()
+            info.setWordWrap(True)
+            column.addWidget(info)
             column.addWidget(label)
             column.addWidget(selector)
             previews.addLayout(column)
@@ -146,20 +156,27 @@ class ReIDPage(QWidget):
         self.pair_info.setWordWrap(True)
         review_box.addWidget(self.pair_info)
         row = QHBoxLayout()
-        self.add_button(row, 'ยืนยันว่าเป็นคันเดียวกัน', lambda: self.decide('accepted'))
-        self.add_button(row, 'คนละคัน', lambda: self.decide('rejected'))
-        self.add_button(row, 'รอตรวจใหม่', lambda: self.decide('pending'))
-        self.add_button(row, 'ไม่พบคู่ใน Candidate', self.no_match)
-        self.add_button(row, 'ก่อนหน้า', lambda: self.change_page(-1))
-        self.add_button(row, 'ถัดไป', lambda: self.change_page(1))
+        self.accept_button = self.add_button(row, 'ยืนยันคู่', lambda: self.decide('accepted'))
+        self.reject_button = self.add_button(row, 'ปฏิเสธคู่', lambda: self.decide('rejected'))
+        self.skip_button = self.add_button(row, 'ไว้ตรวจทีหลัง', self.skip_pair)
+        self.reopen_button = self.add_button(row, 'เปิดให้ตรวจใหม่', lambda: self.decide('pending'))
+        review_box.addLayout(row)
+        row = QHBoxLayout()
+        self.no_match_button = self.add_button(row, 'ไม่พบคู่ในรายการ', self.no_match)
+        row.addStretch()
+        self.previous_button = self.add_button(row, 'หน้าก่อน', lambda: self.change_page(-1))
+        self.next_button = self.add_button(row, 'หน้าถัดไป', lambda: self.change_page(1))
         review_box.addLayout(row)
         self.summary = QLabel('ยังไม่มีผลจับคู่')
         review_box.addWidget(self.summary)
         self.add_button(review_box, 'ส่งออก CSV เส้นทางรถ / OD ที่ยืนยันแล้ว', self.export)
-        self.tabs.addTab(self.review_panel, 'ตรวจคู่รถ / ส่งออก OD')
+        self.review_scroll = QScrollArea()
+        self.review_scroll.setWidgetResizable(True)
+        self.review_scroll.setWidget(self.review_panel)
+        self.tabs.addTab(self.review_scroll, 'ตรวจคู่รถ / ส่งออก OD')
         self.routes_panel = QWidget()
         routes_box = QVBoxLayout(self.routes_panel)
-        self.routes = grid(['เส้นทาง ID', 'ต้นทาง', 'ปลายทาง', 'จุดที่พบตามลำดับ', 'ประเภทรถ', 'ออกจากต้นทาง', 'ถึงปลายทาง', 'เวลาเดินทาง (วินาที)'])
+        self.routes = grid(['เส้นทาง ID', 'ต้นทาง', 'ปลายทาง', 'จุดที่พบตามลำดับ', 'ประเภทรถ', 'ผ่านจุดต้นทาง', 'ผ่านจุดปลายทาง', 'เวลาเดินทาง (วินาที)'])
         self.routes.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         routes_box.addWidget(self.routes, 1)
         routes_box.addWidget(QLabel('เฉพาะคู่ที่ยืนยันแล้ว · จุดแรก–สุดท้ายที่พบ ไม่ใช่จุดเริ่ม–จบทริปจริง · เวลา UTC+07:00'))
@@ -169,16 +186,59 @@ class ReIDPage(QWidget):
         routes_box.addWidget(self.route_page)
         self.add_button(routes_box, 'ส่งออก CSV เส้นทางรถ / OD ที่ยืนยันแล้ว', self.export)
         self.tabs.addTab(self.routes_panel, 'เส้นทางที่ยืนยันแล้ว / OD')
-        row = QHBoxLayout()
+        self.run_controls = QWidget()
+        row = QHBoxLayout(self.run_controls)
+        row.setContentsMargins(0, 0, 0, 0)
         self.run_button = self.add_button(row, 'จับคู่รถข้ามจุด', self.start)
         self.run_button.setObjectName('primary')
         self.cancel_button = self.add_button(row, 'ยกเลิก', self.cancelled.set)
         self.cancel_button.setEnabled(False)
-        box.addLayout(row)
-        self.status = QLabel('พร้อม · เวลาแก้ไข = เวลาในผลวิเคราะห์ + ค่าชดเชยนาฬิกา')
+        box.addWidget(self.run_controls)
+        self.tabs.currentChanged.connect(self.update_run_controls)
+        self.status = QLabel()
+        self.status.setToolTip('เวลาที่แสดง = เวลาในผลวิเคราะห์ + ค่าชดเชยนาฬิกา')
         self.status.setWordWrap(True)
         box.addWidget(self.status)
         self.progress_message.connect(self.status.setText)
+        for table in (self.observations, self.links):
+            table.itemSelectionChanged.connect(self.update_delete_buttons)
+            table.itemChanged.connect(self.update_setup_actions)
+            table.model().rowsInserted.connect(self.update_setup_actions)
+            table.model().rowsRemoved.connect(self.update_setup_actions)
+        self.destination.textChanged.connect(self.update_setup_actions)
+        self.model.textChanged.connect(self.update_setup_actions)
+        self.reid_device.currentTextChanged.connect(self.update_setup_actions)
+        self.update_setup_actions()
+        self.update_review_actions()
+
+    def update_run_controls(self):
+        self.run_controls.setVisible(self.tabs.currentIndex() == 0 or self.cancel_button.isEnabled())
+
+    def update_delete_buttons(self):
+        self.delete_observation.setEnabled(bool(self.observations.selectedItems()))
+        self.delete_link.setEnabled(bool(self.links.selectedItems()))
+
+    def update_setup_actions(self, *_args):
+        self.update_delete_buttons()
+        enough = self.observations.rowCount() >= 2
+        self.add_link_button.setEnabled(enough)
+        if not self.setup.isEnabled():
+            return
+        problem = ""
+        if not enough:
+            problem = "เพิ่มผลวิเคราะห์อย่างน้อย 2 ช่วงสำรวจ"
+        elif not self.links.rowCount():
+            problem = "เพิ่มเส้นทางและระบุช่วงเวลาเดินทาง"
+        elif not self.destination.text().strip():
+            problem = "เลือกโฟลเดอร์ผลลัพธ์"
+        else:
+            try:
+                self.config()
+            except (ValueError, OSError) as exc:
+                problem = f"ตรวจค่าจับคู่ · {exc}"
+        self.run_button.setEnabled(not problem)
+        self.run_button.setToolTip(problem)
+        self.status.setText(problem or "ข้อมูลตั้งค่าครบ · เริ่มจับคู่รถได้")
 
     def add_button(self, layout, text, function):
         button = QPushButton(text)
@@ -205,7 +265,7 @@ class ReIDPage(QWidget):
             point = selected or point
             add_row(self.observations, [f"{point}_{self.observations.rowCount()+1}", point, path, 0, ''])
             self.add_point_selector(self.observations.rowCount()-1, path, selected)
-            self.status.setText('แก้ชื่อจุดให้ตรงตำแหน่งจริง และระบุเส้นทางกับเวลาเดินทาง')
+            self.update_setup_actions()
         except (ValueError, OSError, KeyError) as exc:
             self.status.setText(str(exc))
 
@@ -233,6 +293,7 @@ class ReIDPage(QWidget):
             selector.addItem(gate, gate)
         selector.setCurrentIndex(max(0, selector.findData(selected)))
         self.observations.setCellWidget(row, 4, selector)
+        selector.currentIndexChanged.connect(self.update_setup_actions)
 
     def add_link(self):
         points = [self.cell(self.observations, row, 1) for row in range(self.observations.rowCount())]
@@ -274,6 +335,7 @@ class ReIDPage(QWidget):
         self.margin.setValue(options['ambiguity_margin'])
         self.width.setValue(options['input_size'][0])
         self.height.setValue(options['input_size'][1])
+        self.update_setup_actions()
 
     def open_config(self):
         path, _ = QFileDialog.getOpenFileName(self, 'เปิดค่าจับคู่', '', 'YAML / JSON (*.yaml *.yml *.json)')
@@ -301,6 +363,7 @@ class ReIDPage(QWidget):
         self.routes_panel.setEnabled(False)
         self.run_button.setEnabled(False)
         self.cancel_button.setEnabled(cancel)
+        self.update_run_controls()
         self.tasks.request(function)
 
     def start(self):
@@ -329,8 +392,10 @@ class ReIDPage(QWidget):
         self.setup.setEnabled(True)
         self.review_panel.setEnabled(True)
         self.routes_panel.setEnabled(True)
-        self.run_button.setEnabled(True)
         self.cancel_button.setEnabled(False)
+        self.update_run_controls()
+        self.update_setup_actions()
+        continuation, self.pending_review_pair = self.pending_review_pair, None
         if error:
             self.status.setText(error)
             return
@@ -348,46 +413,67 @@ class ReIDPage(QWidget):
                     if sighting['point_id'] in source_points:
                         self.source_filter.addItem(f"{sighting['point_id']} · ID ภายใน {sighting['local_vehicle_id']} · "
                                                    f"{self.time_text(sighting['entry_time'])}", sighting['id'])
+                position = self.settings.value(self.review_key(), {})
+                self.source_filter.setCurrentIndex(max(0, self.source_filter.findData(position.get('source'))))
                 self.source_filter.blockSignals(False)
-            self.refresh()
-            self.tabs.setCurrentWidget(self.review_panel)
+                self.refresh(position.get('pair'))
+            else:
+                self.refresh(self.next_pending(continuation), prefer_pending=False)
+            self.tabs.setCurrentWidget(self.review_scroll)
             method = result['appearance']['method']
             self.status.setText(f'ผลลัพธ์: {directory} · {method} · ต้องยืนยันคู่ก่อนนับ OD')
         else:
             self.status.setText(f'ส่งออก CSV ที่ยืนยันแล้ว: {directory}')
 
-    def refresh(self):
-        self.pairs.setRowCount(0)
-        lookup = {s['id']: s for s in self.result['sightings']}
-        for pair in self.filtered_candidates()[self.offset:self.offset+self.page_size]:
-            a, b = lookup[pair['source']], lookup[pair['target']]
-            add_row(self.pairs, [f"{pair.get('rank', '—')} · {pair['id']}", f"{a['point_id']} / {a['local_vehicle_id']}",
-                                f"{b['point_id']} / {b['local_vehicle_id']}", f"{pair['similarity']:.3f}",
-                                f"{pair['travel_s']:.2f}", ('ID เดียวกัน' if pair.get('identity_method') == 'shared_track'
-                                else 'เสนอ') if pair['suggested'] else 'ทางเลือก',
-                                'กำกวม' if pair['ambiguous'] else '',
-                                {'pending': 'รอตรวจ', 'accepted': 'ยืนยัน', 'rejected': 'คนละคัน'}[pair['status']]])
+    def review_key(self):
+        identity = str(Path(self.directory).resolve()).encode('utf-8')
+        return 'odReview/' + sha256(identity).hexdigest()
+
+    def save_position(self, pair):
+        if self.directory:
+            self.settings.setValue(self.review_key(), {
+                'source': self.source_filter.currentData(),
+                'pair': pair['id'] if pair else None,
+            })
+
+    def next_pending(self, after=None, *, exclude_current=False):
+        candidates = self.filtered_candidates()
+        index = next((i for i, pair in enumerate(candidates) if pair['id'] == after), -1)
+        for pair in candidates[index + 1:] + candidates[:index + 1]:
+            if pair['status'] == 'pending' and (not exclude_current or pair['id'] != after):
+                return pair['id']
+        return None
+
+    def refresh(self, pair_id=None, *, prefer_pending=True):
+        candidates = self.filtered_candidates()
+        if not pair_id and prefer_pending:
+            pair_id = self.next_pending()
+        selected = next((i for i, candidate in enumerate(candidates) if candidate['id'] == pair_id), None)
+        if selected is not None:
+            self.offset = selected // self.page_size * self.page_size
+        self.offset = min(self.offset, max(0, (len(candidates) - 1) // self.page_size) * self.page_size)
+        with QSignalBlocker(self.pairs):
+            self.pairs.setRowCount(0)
+            lookup = {s['id']: s for s in self.result['sightings']}
+            for pair in candidates[self.offset:self.offset+self.page_size]:
+                a, b = lookup[pair['source']], lookup[pair['target']]
+                add_row(self.pairs, [f"{pair.get('rank', '—')} · {pair['id']}", f"{a['point_id']} / {a['local_vehicle_id']}",
+                                    f"{b['point_id']} / {b['local_vehicle_id']}", f"{pair['similarity']:.3f}",
+                                    f"{pair['travel_s']:.2f}", ('ID เดียวกัน' if pair.get('identity_method') == 'shared_track'
+                                    else 'เสนอ') if pair['suggested'] else 'ทางเลือก',
+                                    'กำกวม' if pair['ambiguous'] else '',
+                                    {'pending': 'รอตรวจ', 'accepted': 'ยืนยัน', 'rejected': 'คนละคัน'}[pair['status']]])
+            if self.pairs.rowCount():
+                self.pairs.selectRow(selected - self.offset if selected is not None else 0)
+        pending = sum(c['status'] == 'pending' for c in candidates)
         accepted = sum(c['status'] == 'accepted' for c in self.result['candidates'])
-        self.summary.setText(f"รายการรถที่พบ {len(lookup)} · คู่เสนอ/ทางเลือกทั้งหมด {len(self.result['candidates'])} · "
-                             f"ยืนยัน {accepted} คู่ · เส้นทางยืนยัน {len(self.result['journeys'])} · "
+        self.summary.setText(f"รอตรวจ {pending} จาก {len(candidates)} คู่ในมุมมองนี้ · "
+                             f"ยืนยันทั้งหมด {accepted} คู่ · เส้นทางยืนยัน {len(self.result['journeys'])} · "
                              f"ระบุไม่พบคู่ {len(self.result.get('source_reviews', {}))} รายการ · "
-                             f'หน้าที่ {self.offset//self.page_size+1}')
+                             f"หน้า {self.offset // self.page_size + 1}")
         self.route_page.setMaximum(max(1, (len(self.result['journeys']) + self.page_size - 1) // self.page_size))
         self.refresh_routes()
-        if self.pairs.rowCount():
-            visible = self.filtered_candidates()[self.offset:self.offset+self.page_size]
-            pending = next((i for i, pair in enumerate(visible) if pair['status'] == 'pending'), 0)
-            self.pairs.selectRow(pending)
-        else:
-            self.left.clear()
-            self.right.clear()
-            self.pair_info.setText('ไม่พบคู่ตามช่วงเวลาและความคล้ายที่ตั้งไว้ · ตรวจนาฬิกาและเส้นทาง')
-            self.left_frame.clear()
-            self.right_frame.clear()
-            source = lookup.get(self.source_filter.currentData())
-            if source:
-                self.set_gallery(self.left_frame, source)
-                self.show_frames()
+        self.preview_pair()
 
     def filtered_candidates(self):
         if not self.result:
@@ -410,19 +496,53 @@ class ReIDPage(QWidget):
         candidates = self.filtered_candidates()
         return candidates[self.offset + index] if self.offset + index < len(candidates) else None
 
+    def update_review_actions(self, pair=None):
+        source = self.source_filter.currentData() or (pair['source'] if pair else None)
+        no_match = source in (self.result or {}).get('source_reviews', {})
+        self.accept_button.setEnabled(bool(pair and pair['status'] != 'accepted'))
+        self.reject_button.setEnabled(bool(pair and pair['status'] != 'rejected'))
+        self.skip_button.setEnabled(bool(pair and self.next_pending(pair['id'], exclude_current=True)))
+        self.reopen_button.setEnabled(bool(pair and pair['status'] != 'pending') or no_match)
+        self.no_match_button.setEnabled(bool(source and not no_match))
+        self.previous_button.setEnabled(self.offset > 0)
+        self.next_button.setEnabled(self.offset + self.page_size < len(self.filtered_candidates()))
+
     def preview_pair(self):
         pair = self.current_pair()
-        if pair is None:
+        self.update_review_actions(pair)
+        self.save_position(pair)
+        if not self.result:
             return
         lookup = {s['id']: s for s in self.result['sightings']}
-        descriptions = []
-        for key, selector in [('source', self.left_frame), ('target', self.right_frame)]:
-            sighting = lookup[pair[key]]
-            self.set_gallery(selector, sighting)
-            time = self.time_text(sighting['entry_time'])
-            descriptions.append(f"{sighting['observation_id']} · รถ {sighting['local_vehicle_id']} · {time}")
-        self.pair_info.setText(' → '.join(descriptions) + '\nความคล้ายเป็นคะแนนเปรียบเทียบ ไม่ใช่ความน่าจะเป็นว่าเป็นคันเดียวกัน')
+        if pair is None:
+            self.left_info.setText('จุด A')
+            self.right_info.setText('จุด B')
+            self.left_frame.clear()
+            self.right_frame.clear()
+            source = lookup.get(self.source_filter.currentData())
+            if source:
+                self.left_info.setText(f"จุด A · {source['point_id']} · รถ {source['local_vehicle_id']}")
+                self.set_gallery(self.left_frame, source)
+            self.pair_info.setText('ไม่พบคู่ตามช่วงเวลาและความคล้ายที่ตั้งไว้ · ตรวจนาฬิกาและเส้นทาง')
+        else:
+            a, b = lookup[pair['source']], lookup[pair['target']]
+            self.set_gallery(self.left_frame, a)
+            self.set_gallery(self.right_frame, b)
+            a_time = "เวลาผ่านจุด A" if a.get("passage_point") else "เวลาที่พบครั้งสุดท้าย"
+            b_time = "เวลาผ่านจุด B" if b.get("passage_point") else "เวลาที่พบครั้งแรกที่ B"
+            self.left_info.setText(f"จุด A · {a['point_id']} · รถ {a['local_vehicle_id']}\n"
+                                   f"{a_time} {self.time_text(a['exit_time'])}")
+            self.right_info.setText(f"จุด B · {b['point_id']} · รถ {b['local_vehicle_id']}\n"
+                                    f"{b_time} {self.time_text(b['entry_time'])}")
+            self.pair_info.setText(f"ช่วงห่าง {pair['travel_s']:.2f} วินาที · ความคล้าย {pair['similarity']:.3f}")
         self.show_frames()
+
+    def skip_pair(self):
+        pair = self.current_pair()
+        if pair:
+            following = self.next_pending(pair['id'], exclude_current=True)
+            if following:
+                self.refresh(following)
 
     def set_gallery(self, selector, sighting):
         selector.blockSignals(True)
@@ -437,7 +557,7 @@ class ReIDPage(QWidget):
             path = selector.currentData()
             if path and self.directory:
                 pixmap = QPixmap(str(Path(self.directory) / path))
-                label.setPixmap(pixmap.scaled(300, 180, Qt.AspectRatioMode.KeepAspectRatio,
+                label.setPixmap(pixmap.scaled(300, label.height(), Qt.AspectRatioMode.KeepAspectRatio,
                                               Qt.TransformationMode.SmoothTransformation))
             else:
                 label.clear()
@@ -459,6 +579,7 @@ class ReIDPage(QWidget):
         pair = self.current_pair()
         if pair and not self.busy():
             directory, result, pair_id = self.directory, self.result, pair['id']
+            self.pending_review_pair = pair_id if decision != 'pending' else None
             self.begin(lambda: ('review', directory, workflow.save_review(directory, result, pair_id, decision)))
         elif decision == 'pending' and self.result and not self.busy():
             source = self.source_filter.currentData()
@@ -470,13 +591,14 @@ class ReIDPage(QWidget):
         if self.result:
             last = max(0, (len(self.filtered_candidates()) - 1) // self.page_size) * self.page_size
             self.offset = min(last, max(0, self.offset + delta*self.page_size))
-            self.refresh()
+            self.refresh(prefer_pending=False)
 
     def no_match(self):
         pair = self.current_pair()
         source = self.source_filter.currentData() or (pair['source'] if pair else None)
         if source and self.result and not self.busy():
             directory, result = self.directory, self.result
+            self.pending_review_pair = pair['id'] if pair else None
             self.begin(lambda: ('review', directory, workflow.save_no_match(directory, result, source)))
 
     def export(self):

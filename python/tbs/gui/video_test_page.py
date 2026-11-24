@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineE
                               QSplitter, QPushButton, QScrollArea)
 from .video_player import VideoPlayer, clock
 from .widgets import DetectorOptions, file_field, VIDEO_FILTER, MODEL_FILTER
+from ..models import model_path
 from ..video_test import validate_config
 from .model_selector import ModelSelector
 from .spatial_editor import SpatialEditor
@@ -79,9 +80,17 @@ class VideoTestPage(QWidget):
         footer = QWidget()
         footer_box = QVBoxLayout(footer)
         footer_box.setContentsMargins(12, 6, 12, 10)
+        self.test_hint = QLabel()
+        self.test_hint.setObjectName("muted")
+        self.test_hint.setWordWrap(True)
+        footer_box.addWidget(self.test_hint)
         footer_box.addWidget(self.error_label)
         footer_box.addWidget(self.run_button)
         footer_box.addWidget(self.site_button)
+        transfer_hint = QLabel("นำวิดีโอ โมเดล และ ROI ที่เลือกไปใช้ต่อ")
+        transfer_hint.setWordWrap(True)
+        transfer_hint.setObjectName("muted")
+        footer_box.addWidget(transfer_hint)
         panel_box.addWidget(footer)
         self.player = VideoPlayer()
         self.spatial_editor = SpatialEditor(self.player.canvas, allow_points=False)
@@ -94,6 +103,8 @@ class VideoTestPage(QWidget):
         self.model_selector.checked.connect(self.show_model_preview)
         self.options.changed.connect(self.clear_model_preview)
         self.model_path.textChanged.connect(self.clear_model_preview)
+        self.model_path.textChanged.connect(self.model_changed)
+        self.model_selector.activity_changed.connect(self.update_test_readiness)
         self.player.loaded.connect(self.loaded)
         self.player.failed.connect(self.failed)
         self.panel_toggle = QPushButton("แผงตั้งค่า")
@@ -110,6 +121,30 @@ class VideoTestPage(QWidget):
         if state is not None:
             self.split.restoreState(state)
         box.addWidget(self.split, 1)
+        self.update_test_readiness()
+
+    def model_changed(self):
+        if self.player.ready:
+            self.error_label.hide()
+        self.update_test_readiness()
+
+    def update_test_readiness(self):
+        path = self.model_path.text().strip()
+        if not self.player.ready:
+            hint = "เปิดวิดีโอเพื่อเริ่มทดสอบ"
+        elif self.model_selector.working:
+            hint = "รอการตรวจโมเดลให้เสร็จ"
+        elif not path:
+            hint = "เลือกโมเดลเพื่อเริ่มทดสอบ"
+        else:
+            try:
+                model_path(path)
+                hint = ""
+            except (ValueError, OSError) as exc:
+                hint = str(exc)
+        self.test_hint.setText(hint)
+        self.test_hint.setVisible(bool(hint))
+        self.run_button.setEnabled(not hint)
 
     def open_video(self, path):
         if not str(path).strip():
@@ -122,7 +157,7 @@ class VideoTestPage(QWidget):
 
     def invalidate_video(self):
         self.player.clear()
-        self.run_button.setEnabled(False)
+        self.update_test_readiness()
         self.site_button.setEnabled(False)
         self.error_label.clear()
         self.error_label.hide()
@@ -132,13 +167,13 @@ class VideoTestPage(QWidget):
         self.video_info.setText(f"{info['width']} × {info['height']} px · {duration}")
         self.error_label.clear()
         self.error_label.hide()
-        self.run_button.setEnabled(True)
+        self.update_test_readiness()
         self.site_button.setEnabled(True)
 
     def failed(self, error):
         self.error_label.setText(error)
         self.error_label.show()
-        self.run_button.setEnabled(False)
+        self.update_test_readiness()
         self.site_button.setEnabled(False)
 
     def start_test(self):
@@ -160,6 +195,8 @@ class VideoTestPage(QWidget):
             self.error_label.show()
 
     def use_site(self):
+        if not self.player.ready:
+            return
         try:
             self.site_requested.emit(self.video_path.text(), self.model_path.text(), self.options.values())
         except ValueError as exc:
